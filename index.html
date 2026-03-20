@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dead Visualizer</title>
+  <link rel="stylesheet" href="./css/styles.css?v=1" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="mainCanvas"></canvas>
+  </div>
+
+  <div id="startScreen">
+    <div id="startCard">
+      <h1>Dead Visualizer</h1>
+      <p>Live psychedelic visual engine prototype.</p>
+      <p>Modes: 1 = Liquid Split, 2 = Feedback Tunnel, 3 = Mirror Chamber, 4 = Monolith Bloom</p>
+      <p>F = Fullscreen | H = Hide HUD | A = Auto Cycle | Space = Blackout Hit</p>
+      <button id="startButton">Start Audio + Visuals</button>
+    </div>
+  </div>
+
+  <div id="overlay">
+    <div id="hud">
+      <div><strong>Mode:</strong> <span id="modeLabel">Boot</span></div>
+      <div><strong>Audio:</strong> <span id="audioLabel">Not started</span></div>
+      <div><strong>Transport:</strong> <span id="transportLabel">0.00</span></div>
+      <div><strong>Energy:</strong> <span id="energyLabel">0.00</span></div>
+      <div><strong>Silence:</strong> <span id="silenceLabel">1.00</span></div>
+      <div class="small">1 / 2 / 3 / 4 / A / H / F / Space</div>
+      <button id="fsButton">Fullscreen</button>
+      <button id="micButton">Reconnect Audio</button>
+    </div>
+  </div>
+
+  <script type="module" src="./js/main.js?v=1"></script>
+</body>
+</html>

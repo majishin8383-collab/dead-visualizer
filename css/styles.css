@@ -1,0 +1,112 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  background: #000;
+}
+
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+#startScreen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at center, rgba(110, 20, 160, 0.12), rgba(0,0,0,0.97)),
+    #000;
+  z-index: 20;
+}
+
+#startCard {
+  width: min(92vw, 620px);
+  background: rgba(0, 0, 0, 0.78);
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 16px;
+  padding: 22px;
+  color: #fff;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+
+#startCard h1 {
+  margin: 0 0 12px;
+  font-size: 30px;
+}
+
+#startCard p {
+  margin: 0 0 10px;
+  line-height: 1.5;
+  opacity: 0.92;
+}
+
+#startCard button,
+#hud button {
+  appearance: none;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 16px;
+  background: #fff;
+  color: #000;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+#startCard button {
+  margin-top: 12px;
+  font-size: 16px;
+}
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 14px;
+  box-sizing: border-box;
+}
+
+#hud {
+  pointer-events: auto;
+  background: rgba(0,0,0,0.46);
+  border: 1px solid rgba(255,255,255,0.16);
+  color: #fff;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  backdrop-filter: blur(8px);
+  max-width: 430px;
+}
+
+#hud .small {
+  opacity: 0.8;
+  font-size: 12px;
+}
+
+#hud.hidden {
+  opacity: 0.12;
+  transition: opacity 0.25s ease;
+}
+
+#hud button {
+  margin-top: 8px;
+  margin-right: 6px;
+  font-size: 13px;
+  padding: 10px 12px;
+}
