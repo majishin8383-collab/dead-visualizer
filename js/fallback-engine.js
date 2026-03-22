@@ -9,6 +9,29 @@ function palette(t) {
   return [r * 255, g * 255, b * 255];
 }
 
+function liquidPalette(t) {
+  const stops = [
+    [0, 230, 255], // cyan
+    [30, 70, 255], // blue
+    [245, 26, 255], // magenta
+    [150, 30, 240], // purple
+    [255, 28, 44], // red
+    [255, 102, 0], // orange
+    [255, 220, 22], // yellow
+    [44, 236, 92], // occasional green
+  ];
+  const x = ((t % 1) + 1) % 1 * stops.length;
+  const i = Math.floor(x);
+  const f = x - i;
+  const a = stops[i];
+  const b = stops[(i + 1) % stops.length];
+  return [
+    a[0] + (b[0] - a[0]) * f,
+    a[1] + (b[1] - a[1]) * f,
+    a[2] + (b[2] - a[2]) * f,
+  ];
+}
+
 export class FallbackEngine {
   constructor(canvas) {
     this.canvas = canvas;
@@ -46,6 +69,8 @@ export class FallbackEngine {
     const ch = h / cells;
     const driftX = time * 0.04;
     const driftY = -time * 0.03;
+    const hueSpin = time * (0.026 + audio.energy * 0.032 + audio.mids * 0.02);
+    const bassWarm = clamp((audio.bass - 0.15) / 0.7, 0, 1);
 
     for (let gy = 0; gy < cells; gy++) {
       for (let gx = 0; gx < cells; gx++) {
@@ -73,14 +98,36 @@ export class FallbackEngine {
         const advX = nx + flowX * 0.08 * (0.4 + zone + audio.mids * 0.7) + bassPulse * 0.05;
         const advY = ny + flowY * 0.08 * (0.4 + zone + audio.mids * 0.7) + bassPulse * 0.05;
         const vein = Math.sin(advX * 14.0 + advY * 10.0 + time * 2.3 + swirl * 1.5);
-        const warmCool = Math.sin(advX * 2.7 - advY * 1.9 + time * 0.4 + bassPulse * 2.0);
-        const hue = 0.5 + warmCool * 0.22 + vein * 0.08 + audio.highs * 0.1;
-        const [pr, pg, pb] = palette(hue);
+        const eddy = Math.sin(advX * 4.8 - advY * 5.3 + time * 0.82);
+        const detail = zone * 0.5 + swirl * 0.28 + eddy * 0.22;
+        const warmShift = bassWarm * (0.11 + audio.onset * 0.08);
+        const baseT = detail * 0.34 + hueSpin + vein * 0.06;
+        const midT = detail * (0.6 + audio.mids * 0.35) + time * (0.05 + audio.mids * 0.08);
+        const highT = detail * 0.12 + hueSpin * 1.6 + audio.highs * 0.2 + Math.sin(time * 0.9 + advX * 2.0) * 0.03;
+        const [bR, bG, bB] = liquidPalette(baseT + warmShift);
+        const [mR, mG, mB] = liquidPalette(midT + warmShift * 1.5);
+        const [hR, hG, hB] = liquidPalette(highT + warmShift * 2.1);
 
-        const satBoost = 1.15 + audio.mids * 0.45;
-        const r = clamp((pr / 255) * satBoost + warmCool * 0.28 + vein * 0.12, 0, 1) * 255;
-        const g = clamp((pg / 255) * satBoost + vein * 0.04, 0, 1) * 255;
-        const b = clamp((pb / 255) * satBoost - warmCool * 0.2 + audio.highs * 0.08, 0, 1) * 255;
+        const veinEdge = Math.abs(((detail * (5.6 + audio.mids * 2.6)) % 1 + 1) % 1 - 0.5) * 2;
+        const thinVein = clamp((veinEdge - 0.84) / 0.14, 0, 1) * clamp((zone - 0.2) / 0.8, 0, 1);
+        const shimmer = clamp((Math.sin((advX + advY) * 24 + time * 7.0) * 0.5 + 0.5 - 0.5) * 2, 0, 1) * audio.highs;
+        const satBoost = 1.34 + audio.mids * 0.28;
+
+        let r = (bR * 0.55 + mR * 0.34 + hR * (0.11 + audio.highs * 0.08)) / 255;
+        let g = (bG * 0.55 + mG * 0.34 + hG * (0.11 + audio.highs * 0.08)) / 255;
+        let b = (bB * 0.55 + mB * 0.34 + hB * (0.11 + audio.highs * 0.08)) / 255;
+
+        r = r * satBoost + thinVein * (0.25 + bassWarm * 0.2) + shimmer * 0.08;
+        g = g * satBoost - thinVein * 0.1 + shimmer * 0.05;
+        b = b * satBoost + thinVein * 0.15 + shimmer * 0.08;
+
+        const contrast = 1.22 + bassWarm * 0.2;
+        r = clamp((r - 0.5) * contrast + 0.5, 0, 0.96);
+        g = clamp((g - 0.5) * contrast + 0.5, 0, 0.96);
+        b = clamp((b - 0.5) * contrast + 0.5, 0, 0.96);
+        r *= 255;
+        g *= 255;
+        b *= 255;
         const a = 0.58 + zone * 0.24 + audio.bass * 0.2;
         ctx.fillStyle = `rgba(${r | 0},${g | 0},${b | 0},${a})`;
         ctx.fillRect(x, y, cw + 1, ch + 1);
