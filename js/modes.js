@@ -228,20 +228,6 @@ vec3 feedbackSwirl(vec2 uv, float bass, float mids, float highs, float energy, f
   return max(col, 0.0);
 }
 
-vec3 modeTunnel(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float peak, float transport){
-  vec3 col = feedbackSwirl(uv, bass, mids, highs, energy, onset, 0.0, 0.0);
-
-  vec2 flowUv = uv + flowNoise(p * 2.7 + vec2(u_time * 0.3, -u_time * 0.35)) * (0.01 + mids * 0.02);
-  vec3 src = modeLiquid(flowUv, p, bass, mids, highs, energy, onset, transport);
-  col = mix(src, col, 0.72 + energy * 0.18);
-
-  float chaos = fbm(p * 9.0 + vec2(u_time * 0.9, -u_time * 0.8));
-  col += (chaos - 0.5) * (0.12 + highs * 0.07);
-  col += neonSwirlPalette(chaos + u_time * 0.13) * (0.06 + peak * 0.08);
-
-  return max(col, 0.0);
-}
-
 vec2 kaleidoUv(vec2 uv, vec2 center, float segments, float angle){
   vec2 p = uv - center;
   float r = length(p);
@@ -253,33 +239,143 @@ vec2 kaleidoUv(vec2 uv, vec2 center, float segments, float angle){
   return kp + center;
 }
 
+float cellNoise(vec2 p){
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  float d = 1.0;
+  for(int y=-1;y<=1;y++){
+    for(int x=-1;x<=1;x++){
+      vec2 g = vec2(float(x), float(y));
+      vec2 o = vec2(hash(i + g), hash(i + g + 17.3));
+      o = 0.15 + 0.7 * o;
+      vec2 r = g + o - f;
+      d = min(d, dot(r, r));
+    }
+  }
+  return sqrt(d);
+}
+
+vec3 liquidLightbox(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float transport){
+  float t = u_time * (0.052 + energy * 0.03) + transport * 0.005;
+
+  // Three-scale domain-warped liquid structure.
+  vec2 drift = vec2(0.03 * u_time, -0.02 * u_time);
+  vec2 wp = p * 0.86 + drift;
+
+  vec2 warpLarge = flowNoise(wp * 0.55 + vec2(t * 0.31, -t * 0.27));
+  vec2 warpMid = flowNoise((wp + warpLarge * 0.5) * 1.45 + vec2(-t * 0.43, t * 0.36));
+  vec2 warpFine = flowNoise((wp + warpMid * 0.35) * 4.2 + vec2(t * 0.92, -t * 0.81));
+
+  vec2 qLarge = wp + warpLarge * (0.75 + bass * 0.2);
+  vec2 qMid = wp + warpLarge * 0.28 + warpMid * (0.43 + mids * 0.2);
+  vec2 qFine = wp + warpMid * 0.22 + warpFine * (0.2 + highs * 0.12);
+
+  // Bass-driven pressure expansion through the body.
+  vec2 pressureCenter = vec2(sin(t * 0.7), cos(t * 0.53)) * 0.24;
+  vec2 dp = qLarge - pressureCenter;
+  float pressure = exp(-dot(dp, dp) * 2.1) * (0.18 + bass * 0.32);
+  qLarge += normalize(dp + vec2(1e-4)) * pressure;
+  qMid += normalize(dp + vec2(1e-4)) * pressure * 0.7;
+
+  // Large biological mass regions.
+  float largeMass = fbm(qLarge * 1.05 + vec2(0.0, t * 0.12));
+
+  // Medium "cell wall" formations.
+  float c = cellNoise(qMid * 5.4 + vec2(t * 0.08, -t * 0.06));
+  float c2 = cellNoise(qMid * 6.6 + vec2(-t * 0.05, t * 0.04));
+  float cellWalls = 1.0 - smoothstep(0.16, 0.31, min(c, c2));
+
+  // Fine bubble layer and shimmer.
+  float bubbles = 1.0 - cellNoise(qFine * (13.0 + highs * 2.0) + vec2(t * 0.14, -t * 0.12));
+  bubbles = smoothstep(0.62, 0.93, bubbles);
+  float shimmer = fbm(qFine * 16.0 + vec2(u_time * 0.3, -u_time * 0.24));
+  float bubbleShimmer = bubbles * smoothstep(0.5, 0.95, shimmer) * highs * 0.18;
+
+  // Backlit moving glow sources (1-2 orbs).
+  vec2 g1 = vec2(sin(t * 0.31), cos(t * 0.27)) * 0.39;
+  vec2 g2 = vec2(cos(t * 0.23 + 1.2), sin(t * 0.29 + 0.6)) * 0.33;
+  float orb1 = exp(-dot(p - g1, p - g1) * 8.5);
+  float orb2 = exp(-dot(p - g2, p - g2) * 9.8) * (0.35 + 0.65 * step(0.58, fract(0.1 * u_time)));
+  float glow = orb1 + orb2;
+
+  // Darkening away from backlight.
+  float backlightFalloff = exp(-glow * 2.3);
+
+  // Crimson / magenta / blood-red with deep blue-purple edges only.
+  vec3 blood = vec3(0.40, 0.02, 0.05);
+  vec3 crimson = vec3(0.62, 0.03, 0.13);
+  vec3 magenta = vec3(0.44, 0.05, 0.26);
+  vec3 purple = vec3(0.16, 0.05, 0.22);
+  vec3 cobalt = vec3(0.06, 0.10, 0.28);
+
+  float massMix = smoothstep(0.26, 0.78, largeMass + cellWalls * 0.22);
+  vec3 core = mix(blood, crimson, massMix);
+  core = mix(core, magenta, smoothstep(0.38, 0.9, largeMass) * 0.5);
+
+  float edge = smoothstep(0.48, 1.18, length(p));
+  vec3 edgeCol = mix(purple, cobalt, edge);
+  vec3 col = mix(core, edgeCol, edge * (0.55 + 0.2 * (1.0 - largeMass)));
+  col = mix(col, crimson * 1.15, cellWalls * 0.28);
+  col += vec3(0.35, 0.08, 0.11) * bubbleShimmer;
+
+  vec3 hotWhite = vec3(1.0, 0.95, 0.9);
+  col += hotWhite * glow * (0.9 + onset * 0.25);
+  col *= 0.36 + 0.8 * (1.0 - backlightFalloff);
+  col *= 0.82 + largeMass * 0.55;
+
+  return max(col, 0.0);
+}
+
+vec3 modeTunnel(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float peak, float transport){
+  return liquidLightbox(uv, p, bass, mids, highs, energy, onset, transport);
+}
+
 vec3 modeFractal(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float peak, float transport){
-  float segMix = step(0.5, fract(transport * 1.7 + u_time * 0.05));
-  float segments = mix(6.0, 8.0, segMix);
+  vec2 center = vec2(0.5);
+  vec2 d = uv - center;
 
-  vec2 drift = vec2(
-    0.09 * sin(u_time * 0.13 + bass * 1.7),
-    0.08 * cos(u_time * 0.11 + mids * 1.9)
-  );
-  vec2 center = vec2(0.5) + drift;
+  // Slow hypnotic rotation (mids) and bass pulse.
+  float angle = u_time * (0.03 + mids * 0.2);
+  float pulse = 1.0 + sin(u_time * 1.35) * (0.02 + bass * 0.06);
+  vec2 pre = rot(angle) * (d / pulse);
 
-  float pulse = 1.0 + (bass * 0.06 + peak * 0.1) * sin(u_time * 6.283 + transport * 6.283);
-  vec2 zuv = (uv - center) / pulse + center;
-  float angle = u_time * (0.07 + mids * 0.4) + transport * 1.6;
-  vec2 kuv = kaleidoUv(zuv, center, segments, angle);
+  // 8-fold kaleidoscope fold with sharp seam edges.
+  float seg = 6.28318530718 / 8.0;
+  float a0 = atan(pre.y, pre.x);
+  float r = length(pre);
+  float af = mod(a0, seg);
+  float folded = abs(af - seg * 0.5);
+  vec2 k = vec2(cos(folded), sin(folded)) * r + center;
+  vec2 kp = (k * 2.0 - 1.0) * vec2(u_resolution.x / u_resolution.y, 1.0);
 
-  vec2 kpn = (kuv * 2.0 - 1.0) * vec2(u_resolution.x / u_resolution.y, 1.0);
-  vec2 pull = (kuv - center) * (0.012 + energy * 0.022);
-  vec2 feedbackUv = mirrorWrap(kuv - pull);
+  // Tunnel pull using the required 0.992 zoom feel via feedback.
+  vec2 zoomUv = (uv - center) / 0.992 + center;
+  vec3 fb = texture(u_feedback, mirrorWrap(zoomUv)).rgb * 0.92;
 
-  vec3 src = modeLiquid(kuv + flowNoise(kpn * 2.2 + vec2(u_time * 0.22, -u_time * 0.21)) * 0.012, kpn, bass, mids, highs, energy, onset, transport);
-  vec3 fb = texture(u_feedback, feedbackUv).rgb;
+  // Source from Mode 2 liquid engine.
+  vec3 src = liquidLightbox(k, kp, bass, mids, highs, energy, onset, transport);
 
-  vec3 col = mix(src, fb, 0.26 + energy * 0.38);
-  float mandala = fbm(kpn * 5.2 + vec2(-u_time * 0.4, u_time * 0.35));
-  col *= 1.0 + mandala * 0.3;
-  col = mix(col, col * neonSwirlPalette(mandala + u_time * 0.12), 0.35 + highs * 0.2);
-  col += neonSwirlPalette(mandala + 0.23) * (0.08 + onset * 0.11);
+  // Visible seam lines + teal/cyan fringe only on seams.
+  float seamDist = abs(af - seg * 0.5) / (seg * 0.5);
+  float seam = 1.0 - smoothstep(0.9, 1.0, seamDist);
+  vec3 seamFringe = vec3(0.0, 0.75, 0.95) * pow(seam, 6.0) * (0.3 + highs * 0.5);
+
+  // Bright focal center mapped from liquid glow.
+  float centerGlow = exp(-dot(d, d) * 24.0) * (0.45 + onset * 0.3);
+
+  // Deep black corners/outer joins.
+  float cornerMask = smoothstep(0.86, 1.34, length((uv - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0)));
+
+  // Slow hue drift while preserving Mode 2 identity.
+  float drift = 0.5 + 0.5 * sin(u_time * 0.05 + transport * 0.02);
+  vec3 warmDrift = mix(vec3(1.0, 0.98, 0.92), vec3(1.06, 0.85, 0.5), drift);
+
+  vec3 col = mix(src, fb, 0.28 + energy * 0.18);
+  col *= warmDrift;
+  col += seamFringe;
+  col += vec3(1.0, 0.92, 0.82) * centerGlow;
+  col *= 1.0 - cornerMask * 0.92;
+  col *= 0.96 + bass * 0.06;
 
   return max(col, 0.0);
 }
