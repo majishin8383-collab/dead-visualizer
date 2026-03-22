@@ -229,16 +229,36 @@ vec3 feedbackSwirl(vec2 uv, float bass, float mids, float highs, float energy, f
 }
 
 vec3 modeTunnel(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float peak, float transport){
-  vec3 col = feedbackSwirl(uv, bass, mids, highs, energy, onset, 0.0, 0.0);
+  float bassAmt = clamp(bass, 0.0, 1.0);
+  float zoomFactor = max(0.9, 0.988 - bassAmt * 0.008);
+  float rotationSpeed = max(0.001, 0.005 + bassAmt * 0.015);
+  float angle = u_time * 60.0 * rotationSpeed;
 
-  vec2 flowUv = uv + flowNoise(p * 2.7 + vec2(u_time * 0.3, -u_time * 0.35)) * (0.01 + mids * 0.02);
-  vec3 src = modeLiquid(flowUv, p, bass, mids, highs, energy, onset, transport);
-  col = mix(src, col, 0.72 + energy * 0.18);
+  vec2 q = uv - 0.5;
+  q = rot(angle) * q;
+  q /= zoomFactor;
+  vec2 feedbackUv = mirrorWrap(q + 0.5);
 
-  float chaos = fbm(p * 9.0 + vec2(u_time * 0.9, -u_time * 0.8));
-  col += (chaos - 0.5) * (0.12 + highs * 0.07);
-  col += neonSwirlPalette(chaos + u_time * 0.13) * (0.06 + peak * 0.08);
+  vec2 chromaOffset = vec2(0.003, 0.001);
+  vec3 prev;
+  prev.r = texture(u_feedback, mirrorWrap(feedbackUv + chromaOffset)).r;
+  prev.g = texture(u_feedback, feedbackUv).g;
+  prev.b = texture(u_feedback, mirrorWrap(feedbackUv - chromaOffset)).b;
 
+  vec2 liquidUv = uv + flowNoise(p * 2.5 + vec2(u_time * 0.33, -u_time * 0.29)) * (0.01 + mids * 0.02 + highs * 0.01);
+  vec3 fresh = modeLiquid(liquidUv, p, bass, mids, highs, energy, onset, transport);
+
+  float dyeField = fbm((feedbackUv - 0.5) * 5.8 + vec2(-u_time * 0.2, u_time * 0.22));
+  vec3 dye = neonSwirlPalette(dyeField + u_time * 0.1 + onset * 0.28 + peak * 0.16);
+  vec3 tintedFresh = fresh * mix(vec3(1.0), dye, 0.42 + highs * 0.1);
+
+  vec3 col = prev * 0.88 + tintedFresh * 0.12;
+  col += dye * (0.04 + onset * 0.08 + highs * 0.03);
+
+  float contrast = 1.25 + energy * 0.35 + peak * 0.15;
+  col = (col - 0.5) * contrast + 0.5;
+  col = max(col - vec3(0.035), 0.0);
+  col = mix(col, vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), 0.0);
   return max(col, 0.0);
 }
 
@@ -356,7 +376,8 @@ vec3 postProcess(vec2 uv, vec3 scene, float bass, float mids, float highs, float
   col *= mix(0.76, 1.0, vignette);
 
   col = toneMap(col);
-  col *= 1.0 - u_blackout;
+  float blackoutGain = (u_mode == 2) ? (1.0 - u_blackout * 0.97) : (1.0 - u_blackout);
+  col *= blackoutGain;
   col *= (0.95 + onset * 0.08);
   return col;
 }
