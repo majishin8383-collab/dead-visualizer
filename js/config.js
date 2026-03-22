@@ -1,9 +1,9 @@
 export const CONFIG = {
-  buildTag: "dv-113-mode2-feedback-v2",
+  buildTag: "dv-115-mode2-true-fractal",
   modes: {
     names: {
       1: "Liquid Tie-Dye",
-      2: "Feedback Hurricane",
+      2: "True Julia Fractal",
       3: "Liquid Tie-Dye (3)",
       4: "Liquid Tie-Dye (4)",
     },
