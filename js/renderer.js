@@ -1,36 +1,36 @@
 import { CONFIG } from "./config.js";
-import { drawBlackFade, computeBlackout } from "./transitions.js";
-import { renderMode } from "./modes.js";
+import { computeBlackout } from "./transitions.js";
+import { VisualEngine } from "./visual-engine.js";
+import { FallbackEngine } from "./fallback-engine.js";
 
 export class Renderer {
   constructor(canvas, audioEngine, eventsEngine, hudRefs) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext("2d", { alpha: false });
     this.audioEngine = audioEngine;
     this.eventsEngine = eventsEngine;
     this.hudRefs = hudRefs;
-
-    this.width = 0;
-    this.height = 0;
 
     this.mode = CONFIG.modes.defaultMode;
     this.autoMode = false;
     this.autoSwitchTimer = 0;
 
     this.masterTime = 0;
-    this.transportPhase = 0;
-    this.transportSpeed = 0.01;
-
-    this.prevCanvas = document.createElement("canvas");
-    this.prevCtx = this.prevCanvas.getContext("2d");
-
-    this.fieldCanvas = document.createElement("canvas");
-    this.fieldCtx = this.fieldCanvas.getContext("2d", { alpha: false });
-    this.fieldW = 240;
-    this.fieldH = 135;
-    this.fieldImage = null;
+    this.lastTs = performance.now();
 
     this.running = false;
+    this.crashed = false;
+
+    try {
+      this.visual = new VisualEngine(canvas);
+      this.engineName = "WebGL2";
+    } catch (err) {
+      console.error("WebGL2 visual engine failed to initialize, using Canvas fallback.", err);
+      this.visual = new FallbackEngine(canvas);
+      this.engineName = "Canvas Fallback";
+      if (this.hudRefs?.transportLabel) {
+        this.hudRefs.transportLabel.textContent = "fallback";
+      }
+    }
 
     window.addEventListener("resize", () => this.resize());
     this.resize();
@@ -38,24 +38,7 @@ export class Renderer {
   }
 
   resize() {
-    this.width = window.innerWidth;
-    this.height = window.innerHeight;
-
-    this.canvas.width = this.width;
-    this.canvas.height = this.height;
-    this.prevCanvas.width = this.width;
-    this.prevCanvas.height = this.height;
-
-    const scale = Math.max(
-      CONFIG.render.fieldMin,
-      Math.min(CONFIG.render.fieldMax, Math.round(this.width / CONFIG.render.fieldDivisor))
-    );
-
-    this.fieldW = scale;
-    this.fieldH = Math.max(100, Math.round(scale * (this.height / this.width)));
-    this.fieldCanvas.width = this.fieldW;
-    this.fieldCanvas.height = this.fieldH;
-    this.fieldImage = this.fieldCtx.createImageData(this.fieldW, this.fieldH);
+    this.visual.resize(window.innerWidth, window.innerHeight);
   }
 
   setMode(mode) {
@@ -69,32 +52,30 @@ export class Renderer {
   }
 
   updateHudMode() {
-    this.hudRefs.modeLabel.textContent = CONFIG.modes.names[this.mode] || "Unknown";
-  }
-
-  copyFrameToBuffer() {
-    this.prevCtx.clearRect(0, 0, this.width, this.height);
-    this.prevCtx.drawImage(this.canvas, 0, 0);
+    this.hudRefs.modeLabel.textContent = `${CONFIG.modes.names[this.mode] || "Unknown"} (${CONFIG.buildTag} · ${this.engineName})`;
   }
 
   start() {
     this.running = true;
+    this.lastTs = performance.now();
     this.loop();
   }
 
   loop() {
     if (!this.running) return;
+
     requestAnimationFrame(() => this.loop());
+
+    const now = performance.now();
+    const dt = Math.min(0.05, Math.max(1 / 240, (now - this.lastTs) / 1000));
+    this.lastTs = now;
+    this.masterTime += dt;
 
     const audio = this.audioEngine.update();
     const events = this.eventsEngine.update();
 
-    this.transportSpeed = 0.001 + audio.transport * 0.030 + audio.onset * 0.012;
-    this.masterTime += 0.016;
-    this.transportPhase += this.transportSpeed;
-
     if (this.autoMode) {
-      this.autoSwitchTimer += 0.016 * (0.8 + audio.transport * 1.5);
+      this.autoSwitchTimer += dt * (0.55 + audio.energy * 0.7 + audio.onset * 0.6);
       if (this.autoSwitchTimer > CONFIG.modes.autoCycleSeconds) {
         this.autoSwitchTimer = 0;
         this.mode = this.mode >= 4 ? 1 : this.mode + 1;
@@ -102,39 +83,23 @@ export class Renderer {
       }
     }
 
-    const blackout = computeBlackout(
-      audio.silence,
-      audio.energy,
-      events.blackoutPulse,
-      CONFIG
-    );
+    const blackout = computeBlackout(audio.silence, audio.energy, events.blackoutPulse, CONFIG);
 
-    drawBlackFade(this.ctx, this.width, this.height, blackout.fade);
-
-    renderMode({
-      mode: this.mode,
-      ctx: this.ctx,
-      prevCanvas: this.prevCanvas,
-      fieldCanvas: this.fieldCanvas,
-      fieldCtx: this.fieldCtx,
-      fieldImage: this.fieldImage,
-      fieldW: this.fieldW,
-      fieldH: this.fieldH,
-      width: this.width,
-      height: this.height,
-      masterTime: this.masterTime,
-      transportPhase: this.transportPhase,
-      audio,
-    });
-
-    if (blackout.hard) {
-      drawBlackFade(this.ctx, this.width, this.height, 0.92);
+    try {
+      this.visual.render({
+        mode: this.mode,
+        time: this.masterTime,
+        dt,
+        blackout: Math.min(1, blackout.fade),
+        audio,
+      });
+      this.crashed = false;
+    } catch (err) {
+      if (!this.crashed) {
+        console.error("Visualizer recovered into fallback frame.", err);
+      }
+      this.crashed = true;
     }
-    if (blackout.full) {
-      drawBlackFade(this.ctx, this.width, this.height, 1.0);
-    }
-
-    this.copyFrameToBuffer();
 
     this.hudRefs.transportLabel.textContent = audio.transport.toFixed(2);
     this.hudRefs.energyLabel.textContent = audio.energy.toFixed(2);

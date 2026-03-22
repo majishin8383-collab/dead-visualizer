@@ -1,32 +1,27 @@
 export const CONFIG = {
+  buildTag: "dv-100",
   modes: {
     names: {
-      1: "Liquid Split",
-      2: "Heavy Feedback Tunnel",
-      3: "Mirror Chamber",
-      4: "Monolith Bloom",
+      1: "Liquid Tie-Dye",
+      2: "Feedback Tunnel",
+      3: "Fractal Bloom",
+      4: "Chaos",
     },
     defaultMode: 1,
-    autoCycleSeconds: 24,
+    autoCycleSeconds: 18,
   },
 
   audio: {
     fftSize: 2048,
-    smoothingTimeConstant: 0.68,
+    smoothingTimeConstant: 0.64,
     echoCancellation: false,
     noiseSuppression: false,
     autoGainControl: false,
   },
 
-  render: {
-    fieldMin: 180,
-    fieldMax: 340,
-    fieldDivisor: 6.5,
-  },
-
   blackout: {
-    silenceStart: 0.46,
-    silenceHard: 0.84,
-    silenceFull: 0.92,
+    silenceStart: 0.5,
+    silenceHard: 0.87,
+    silenceFull: 0.95,
   },
 };
