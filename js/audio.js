@@ -173,16 +173,16 @@ export class AudioEngine {
     this.smooth.silence = followEnvelope(this.smooth.silence, this.raw.silence, 10, 3.5, dt);
 
     // Speed is derived fresh from live envelope state every frame (no ratcheting).
-    // Transport speed is computed fresh each frame in a fixed impact range.
+    // Units are phase-cycles per second, guided by musical energy + onsets.
     this.motion.speed = clamp(
-      160.0 + this.smooth.energy * 70.0 + this.smooth.onset * 45.0,
-      160.0,
-      260.0
+      0.18 + this.smooth.bass * 0.35 + this.smooth.energy * 1.15 + this.smooth.onset * 0.9,
+      0.05,
+      3.0
     );
 
-    // Phase may accumulate for internal animation math, but speed is bounded and non-ratcheting.
-    this.transportPhase = (this.transportPhase + (this.motion.speed / 220.0) * dt) % 1;
-    this.transport = 160.0 + this.transportPhase * 100.0;
+    // Phase accumulates for animation continuity; exposed transport is normalized phase [0..1].
+    this.transportPhase = (this.transportPhase + this.motion.speed * dt) % 1;
+    this.transport = this.transportPhase;
 
     if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 500) {
       this.lastDebugAt = now;
@@ -204,7 +204,7 @@ export class AudioEngine {
       guitar: clamp(this.smooth.guitar, 0, 1),
       air: clamp(this.smooth.air, 0, 1),
       energy: clamp(this.smooth.energy, 0, 1),
-      transport: clamp(this.transport, 160, 260),
+      transport: clamp(this.transport, 0, 1),
       onset: clamp(this.smooth.onset, 0, 1),
       peak: clamp(this.smooth.peak, 0, 1),
       silence: clamp(this.smooth.silence, 0, 1),

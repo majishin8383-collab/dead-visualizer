@@ -289,7 +289,7 @@ void main(){
   float energy = u_audioA.w;
   float onset = u_audioB.x;
   float peak = u_audioB.y;
-  float transport = u_audioB.z;
+  float transport = u_audioB.z * 220.0; // normalized phase -> legacy modulation scale
 
   vec3 scene;
   if (u_mode == 1) {
