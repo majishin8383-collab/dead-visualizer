@@ -29,11 +29,6 @@ export class AudioEngine {
     this.lastUpdateAt = performance.now();
     this.lastDebugAt = 0;
 
-    this.transport = 0;
-
-    this.lastUpdateAt = performance.now();
-    this.lastDebugAt = 0;
-
     // Envelope state (smoothed audio followers, not phase accumulators)
     this.smooth = {
       bass: 0,
@@ -131,7 +126,7 @@ export class AudioEngine {
         guitar: 0,
         air: 0,
         energy: 0,
-        transport: 0,
+        transport: 160,
         onset: 0,
         peak: 0,
         silence: 1,
@@ -179,21 +174,15 @@ export class AudioEngine {
 
     // Speed is derived fresh from live envelope state every frame (no ratcheting).
     // Transport speed is computed fresh each frame in a fixed impact range.
-    const speedBase = 160.0;
-    const speedFromEnergy = this.smooth.energy * 70.0;
-    const speedFromOnset = this.smooth.onset * 45.0;
-    this.motion.speed = clamp(speedBase + speedFromEnergy + speedFromOnset, 160.0, 260.0);
+    this.motion.speed = clamp(
+      160.0 + this.smooth.energy * 70.0 + this.smooth.onset * 45.0,
+      160.0,
+      260.0
+    );
 
     // Phase may accumulate for internal animation math, but speed is bounded and non-ratcheting.
     this.transportPhase = (this.transportPhase + (this.motion.speed / 220.0) * dt) % 1;
-    this.transport = this.motion.speed;
-    const speedBase = 0.12;
-    const speedFromEnergy = this.smooth.energy * 0.85;
-    const speedFromOnset = this.smooth.onset * 0.55;
-    this.motion.speed = clamp(speedBase + speedFromEnergy + speedFromOnset, 0.08, 1.65);
-
-    // Animation phase may accumulate, but remains bounded.
-    this.transport = (this.transport + this.motion.speed * dt) % 1;
+    this.transport = 160.0 + this.transportPhase * 100.0;
 
     if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 500) {
       this.lastDebugAt = now;
@@ -216,7 +205,6 @@ export class AudioEngine {
       air: clamp(this.smooth.air, 0, 1),
       energy: clamp(this.smooth.energy, 0, 1),
       transport: clamp(this.transport, 160, 260),
-      transport: clamp(this.transport, 0, 1),
       onset: clamp(this.smooth.onset, 0, 1),
       peak: clamp(this.smooth.peak, 0, 1),
       silence: clamp(this.smooth.silence, 0, 1),
