@@ -202,61 +202,65 @@ void main(){
   if (u_mode == 1) {
     scene = texture(u_liquid, uv).rgb;
   } else if (u_mode == 2) {
-    float floorZoom = 0.15;
-    float zoomSpeed = floorZoom + 0.25 + bass * 0.3 + energy * 0.14;
-    float zoomT = u_time * zoomSpeed;
-    float zoomScale = exp(-zoomT);
+    const int MAX_ITER = 128;
 
-    vec2 c = uv - 0.5;
-    c.x *= u_resolution.x / u_resolution.y;
-    float radius = length(c);
+    float zoomSpeed = 0.15 + bass * 0.2;
+    float baseZoom = 2.5;
+    float minZoom = 0.0001;
+    float cycleDur = log(baseZoom / minZoom) / max(zoomSpeed, 0.02);
+    float cycleIndex = floor(u_time / cycleDur);
+    float cycleTime = mod(u_time, cycleDur);
+    float zoom = baseZoom * exp(-cycleTime * zoomSpeed);
 
-    float kickPulse = exp(-u_burstAge * 4.5) * (0.55 + bass * 0.45);
-    float ripple = sin(radius * 46.0 - u_time * (5.0 + bass * 8.0)) * kickPulse;
-    vec2 rippleOffset = normalize(c + vec2(1e-4)) * ripple * 0.013;
+    vec2 centerShift = vec2(
+      hash(vec2(cycleIndex, 19.37)) - 0.5,
+      hash(vec2(41.13, cycleIndex)) - 0.5
+    ) * 0.85;
 
-    vec2 tunnelUv = c * zoomScale + rippleOffset;
-    float roll = u_time * (0.08 + energy * 0.08) + mids * 0.6;
-    tunnelUv = rot(roll) * tunnelUv;
+    vec2 z0 = (uv - 0.5) * zoom;
+    z0.x *= u_resolution.x / u_resolution.y;
+    z0 += centerShift;
 
-    vec2 warp = flowNoise(tunnelUv * 1.3 + vec2(0.0, u_time * 0.26)) * (0.35 + mids * 0.7);
-    tunnelUv += warp * 0.23;
+    float angle = u_time * 0.05;
+    z0 = rot(angle) * z0;
 
-    vec2 z = tunnelUv * (2.0 + energy * 0.4);
-    float accum = 0.0;
-    float density = 0.0;
-    float scaleTrack = 1.0;
-    float morph = u_time * 0.32 + mids * 2.1 + energy * 0.8;
-    for(int i=0; i<6; i++){
-      z = abs(z) / clamp(dot(z, z), 0.12, 3.4) - (0.73 + mids * 0.22 + 0.04 * float(i));
-      z += flowNoise(z * (1.2 + 0.15 * float(i)) + vec2(morph * 0.25, -morph * 0.21)) * (0.2 + 0.08 * float(i));
-      float r = length(z);
-      accum += exp(-r * (1.1 + 0.25 * float(i))) * scaleTrack;
-      density += abs(sin(z.x * 1.8) + cos(z.y * 2.4)) * 0.5 / (1.0 + float(i));
-      scaleTrack *= 0.72;
-      z = rot(0.28 + mids * 0.2 + 0.04 * float(i)) * z;
+    vec2 julia = vec2(
+      0.7885 * cos(u_time * 0.1),
+      0.7885 * sin(u_time * 0.13)
+    );
+    julia += vec2(mids * 0.1, mids * -0.08);
+
+    vec2 z = z0;
+    float iter = 0.0;
+    for(int i = 0; i < MAX_ITER; i++){
+      if(dot(z, z) > 4.0) break;
+      z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + julia;
+      iter += 1.0;
     }
 
-    float depthBoost = smoothstep(0.0, 0.45, 1.0 - min(radius * 1.4, 1.0));
-    float tunnelMask = smoothstep(1.35, 0.04, radius);
-    float core = smoothstep(0.08, 0.0, radius) * (0.5 + bass * 0.8);
-    float detail = accum * (0.72 + depthBoost * 1.4) + density * 0.42;
-    detail *= tunnelMask;
+    float zz = max(dot(z, z), 1.0001);
+    float smoothIter = iter - log2(log2(zz)) + 4.0;
+    float t = clamp(smoothIter / float(MAX_ITER), 0.0, 1.0);
 
-    float hueRotate = fract(u_time / 20.0);
-    float paletteIndex = detail * 0.23 + depthBoost * 0.66 + hueRotate;
-    vec3 neon = neonPalette(paletteIndex);
+    float hueShift = u_time * 0.1 + highs * 0.3;
+    float paletteT = t + hueShift;
+    vec3 baseCol = 0.5 + 0.5 * cos(6.28318 * (paletteT + vec3(0.0, 0.33, 0.67)));
+    baseCol = pow(baseCol, vec3(0.8));
+    baseCol *= 1.4;
 
-    float highFlicker = 0.88 + highs * 0.45 * (0.5 + 0.5 * sin(u_time * 38.0 + detail * 14.0));
-    float shimmer = fbm(tunnelUv * (8.0 + highs * 9.0) + vec2(u_time * 1.9, -u_time * 1.5));
-    float edgeShimmer = pow(smoothstep(0.36, 1.2, radius), 1.8) * highs * shimmer;
+    float insideMask = 1.0 - smoothstep(float(MAX_ITER) - 1.0, float(MAX_ITER), iter);
+    vec3 deepBlack = vec3(0.003, 0.004, 0.012);
+    vec3 col = mix(baseCol, deepBlack, insideMask);
 
-    vec3 deepSpace = vec3(0.004, 0.006, 0.02) * (1.0 - tunnelMask * 0.92);
-    scene = deepSpace;
-    scene += neon * detail * (1.05 + energy * 0.6) * highFlicker;
-    scene += neonPalette(paletteIndex + 0.31) * edgeShimmer * 0.8;
-    scene += neonPalette(paletteIndex + 0.12) * core * (0.6 + bass * 0.8);
-    scene = min(scene, vec3(1.2));
+    float boundary = smoothstep(0.0, 1.0, t) * (1.0 - insideMask);
+    vec3 accent = vec3(0.06, 0.95, 1.0) * (0.6 + 0.4 * sin(paletteT * 6.28318 + 1.2))
+                + vec3(1.0, 0.14, 0.84) * (0.4 + 0.6 * sin(paletteT * 6.28318 + 3.7))
+                + vec3(0.22, 1.0, 0.34) * (0.35 + 0.65 * sin(paletteT * 6.28318 + 5.1))
+                + vec3(1.0, 0.42, 0.04) * (0.3 + 0.7 * sin(paletteT * 6.28318 + 2.4));
+    col += accent * boundary * 0.22;
+
+    float energyPulse = 1.0 + energy * 0.45 + 0.08 * sin(u_time * 7.0 + iter * 0.08);
+    scene = min(col * energyPulse, vec3(1.2));
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
   } else {
