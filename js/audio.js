@@ -1,5 +1,7 @@
 import { CONFIG } from "./config.js";
 
+const SILENCE_THRESHOLD = 0.3;
+
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
@@ -182,9 +184,15 @@ export class AudioEngine {
       clamp(0.03 + this.smooth.bass * 0.75 + this.smooth.mids * 0.2 + this.smooth.onset * 0.12 + highsMotionInfluence, 0.02, 1.8) *
       0.4;
 
-    // Phase accumulates for animation continuity; exposed transport is normalized phase [0..1].
-    this.transportPhase = (this.transportPhase + this.motion.speed * dt) % 1;
-    this.transport = this.transportPhase;
+    // Hard-cut transport in silence so visuals can drop fully to black immediately.
+    if (this.smooth.silence > SILENCE_THRESHOLD) {
+      this.transportPhase = 0;
+      this.transport = 0;
+    } else {
+      // Phase accumulates for animation continuity; exposed transport is normalized phase [0..1].
+      this.transportPhase = (this.transportPhase + this.motion.speed * dt) % 1;
+      this.transport = this.transportPhase;
+    }
 
     if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 500) {
       this.lastDebugAt = now;
