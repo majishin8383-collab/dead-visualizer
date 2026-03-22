@@ -202,66 +202,84 @@ void main(){
   if (u_mode == 1) {
     scene = texture(u_liquid, uv).rgb;
   } else if (u_mode == 2) {
-    const int MAX_ITER = 180;
+    const float PI = 3.14159265;
+    const float N_FOLD = 8.0;
+    const float BLOOM_SPACING = 8.0;
+    const float BLOOM_DURATION = 12.0;
+    const float BLOOM_FADE = 2.0;
+    const int BASE_ITER = 96;
+    const int MAX_ITER_CAP = 108;
 
-    float zoomSpeed = 0.12;
-    float loopPhase = fract(u_time * zoomSpeed);
-    float zoom = 1.4 * exp(-loopPhase * 4.8) + 0.012;
+    vec2 p0 = (uv - 0.5) * 2.0;
+    p0.x *= u_resolution.x / u_resolution.y;
+    p0 = rot(u_time * 0.18) * p0;
 
-    vec2 z0 = (uv - 0.5) * zoom;
-    z0.x *= u_resolution.x / u_resolution.y;
-    float angle = u_time * 0.018;
-    z0 = rot(angle) * z0;
-    float sector = 6.28318 / 6.0;
-    float mandalaA = atan(z0.y, z0.x);
-    float mandalaR = length(z0);
-    mandalaA = mod(mandalaA, sector);
-    mandalaA = abs(mandalaA - sector * 0.5);
-    z0 = mandalaR * vec2(cos(mandalaA), sin(mandalaA));
+    float layerAnchor = floor(u_time / BLOOM_SPACING);
+    int maxIter = BASE_ITER + int(highs * 12.0);
+    maxIter = clamp(maxIter, BASE_ITER, MAX_ITER_CAP);
 
-    vec2 julia = vec2(
-      0.7885 * cos(u_time * 0.1),
-      0.7885 * sin(u_time * 0.13)
-    );
-    julia += vec2(mids * 0.1, mids * -0.08);
+    vec3 accum = vec3(0.0);
+    for (int layer = 0; layer < 3; layer++) {
+      float birth = (layerAnchor - float(layer)) * BLOOM_SPACING;
+      float age = u_time - birth;
+      if (age < 0.0 || age > BLOOM_DURATION) continue;
 
-    vec2 z = z0;
-    float iter = 0.0;
-    float orbitTrap = 10.0;
-    float filament = 0.0;
-    for(int i = 0; i < MAX_ITER; i++){
-      if(dot(z, z) > 4.0) break;
-      z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + julia;
-      orbitTrap = min(orbitTrap, length(z + vec2(0.35, -0.22)));
-      filament += exp(-6.0 * abs(z.x * z.y)) * 0.015;
-      iter += 1.0;
+      float ageN = clamp(age / BLOOM_DURATION, 0.0, 1.0);
+      float scale = mix(0.1, 3.0, pow(ageN, 1.2));
+      vec2 p = p0 / scale;
+
+      float fadeIn = smoothstep(0.0, BLOOM_FADE, age);
+      float fadeOut = 1.0 - smoothstep(BLOOM_DURATION - BLOOM_FADE, BLOOM_DURATION, age);
+      float opacity = fadeIn * fadeOut;
+      opacity *= 1.0 + u_hardTransient * 0.24;
+
+      float r = length(p);
+      float a = atan(p.y, p.x);
+      float sector = 2.0 * PI / N_FOLD;
+      a = mod(a, sector) - 0.5 * sector;
+      p = vec2(cos(a), sin(a)) * r;
+
+      vec2 z = p;
+      vec2 julia = vec2(
+        0.7885 * cos(u_time * 0.07),
+        0.7885 * sin(u_time * 0.09)
+      );
+
+      float iter = 0.0;
+      for (int i = 0; i < MAX_ITER_CAP; i++) {
+        if (i >= maxIter) break;
+        if (dot(z, z) > 4.0) break;
+        z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + julia;
+        iter += 1.0;
+      }
+
+      float z2 = max(dot(z, z), 1.0001);
+      float smoothIter = iter - log2(log2(z2)) + 4.0;
+      float t = clamp(smoothIter / float(maxIter), 0.0, 1.0);
+      float hue = t + u_time * 0.08 + mids * 0.15;
+
+      vec3 col = 0.5 + 0.5 * cos(6.28318 * (hue + vec3(0.0, 0.33, 0.67)));
+      col = pow(col, vec3(0.78));
+      col *= 1.22;
+
+      float inside = smoothstep(float(maxIter) - 1.0, float(maxIter), iter);
+      col = mix(col, vec3(0.0012, 0.0018, 0.007), inside);
+
+      float boundary = smoothstep(0.08, 0.95, t) * (1.0 - inside);
+      col *= 1.0 + bass * 0.6 * boundary;
+
+      float shimmer = (0.5 + 0.5 * sin(u_time * 30.0 + smoothIter * 0.21)) * highs;
+      col += col * shimmer * boundary * 0.2;
+
+      if (u_hardTransient > 0.001) {
+        col = mix(col, 1.0 - col, clamp(u_hardTransient * 0.55, 0.0, 0.6));
+      }
+
+      accum += col * opacity;
     }
 
-    float zz = max(dot(z, z), 1.0001);
-    float smoothIter = iter - log2(log2(zz)) + 4.0;
-    float t = clamp(smoothIter / float(MAX_ITER), 0.0, 1.0);
-
-    float hueShift = u_time * 0.1 + highs * 0.24;
-    float trapGlow = exp(-orbitTrap * 7.0);
-    float branch = atan(z.y, z.x) * 0.15915494 + 0.5;
-    float paletteT = hueShift + t * 0.45 + branch * 0.35 + trapGlow * 0.5 + filament;
-    vec3 baseCol = 0.5 + 0.5 * cos(6.28318 * (paletteT + vec3(0.0, 0.33, 0.67)));
-    baseCol = pow(baseCol, vec3(0.8));
-    baseCol *= 1.4;
-
-    float insideMask = smoothstep(float(MAX_ITER) - 1.0, float(MAX_ITER), iter);
-    vec3 deepBlack = vec3(0.003, 0.004, 0.012);
-    vec3 col = mix(baseCol, deepBlack, insideMask);
-
-    float boundary = smoothstep(0.05, 0.92, trapGlow + filament + t * 0.35) * (1.0 - insideMask);
-    vec3 accent = vec3(0.06, 0.95, 1.0) * (0.6 + 0.4 * sin(paletteT * 6.28318 + 1.2))
-                + vec3(1.0, 0.14, 0.84) * (0.4 + 0.6 * sin(paletteT * 6.28318 + 3.7))
-                + vec3(0.22, 1.0, 0.34) * (0.35 + 0.65 * sin(paletteT * 6.28318 + 5.1))
-                + vec3(1.0, 0.42, 0.04) * (0.3 + 0.7 * sin(paletteT * 6.28318 + 2.4));
-    col += accent * boundary * (0.18 + trapGlow * 0.55);
-
-    float energyPulse = 1.0 + energy * 0.34 + 0.05 * sin(u_time * 6.0 + iter * 0.06);
-    scene = min(col * energyPulse, vec3(1.2));
+    scene = vec3(0.0007, 0.0012, 0.0048) + accum * (0.8 + 0.3 * energy);
+    scene = min(scene, vec3(1.2));
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
   } else {
