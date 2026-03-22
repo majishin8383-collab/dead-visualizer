@@ -23,8 +23,8 @@ export class AudioEngine {
 
     this.ready = false;
     this.lastEnergy = 0;
-    this.transport = 0;
-    this.transportRange = 256;
+    this.transport = 160;
+    this.transportPhase = 0;
 
     this.lastUpdateAt = performance.now();
     this.lastDebugAt = 0;
@@ -173,13 +173,15 @@ export class AudioEngine {
     this.smooth.silence = followEnvelope(this.smooth.silence, this.raw.silence, 10, 3.5, dt);
 
     // Speed is derived fresh from live envelope state every frame (no ratcheting).
-    const speedBase = 0.9;
-    const speedFromEnergy = this.smooth.energy * 2.4;
-    const speedFromOnset = this.smooth.onset * 1.7;
-    this.motion.speed = clamp(speedBase + speedFromEnergy + speedFromOnset, 0.75, 4.8);
+    // Transport speed is computed fresh each frame in a fixed impact range.
+    const speedBase = 160.0;
+    const speedFromEnergy = this.smooth.energy * 70.0;
+    const speedFromOnset = this.smooth.onset * 45.0;
+    this.motion.speed = clamp(speedBase + speedFromEnergy + speedFromOnset, 160.0, 260.0);
 
-    // Animation phase may accumulate, but remains bounded to a stable cycle range.
-    this.transport = (this.transport + this.motion.speed * dt * 48.0) % this.transportRange;
+    // Phase may accumulate for internal animation math, but speed is bounded and non-ratcheting.
+    this.transportPhase = (this.transportPhase + (this.motion.speed / 220.0) * dt) % 1;
+    this.transport = this.motion.speed;
 
     if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 500) {
       this.lastDebugAt = now;
@@ -188,7 +190,7 @@ export class AudioEngine {
         smoothedEnergy: Number(this.smooth.energy.toFixed(3)),
         speed: Number(this.motion.speed.toFixed(3)),
         transport: Number(this.transport.toFixed(3)),
-        transportRange: this.transportRange,
+        transportPhase: Number(this.transportPhase.toFixed(3)),
         onset: Number(this.smooth.onset.toFixed(3)),
       });
     }
@@ -201,7 +203,7 @@ export class AudioEngine {
       guitar: clamp(this.smooth.guitar, 0, 1),
       air: clamp(this.smooth.air, 0, 1),
       energy: clamp(this.smooth.energy, 0, 1),
-      transport: clamp(this.transport, 0, this.transportRange),
+      transport: clamp(this.transport, 160, 260),
       onset: clamp(this.smooth.onset, 0, 1),
       peak: clamp(this.smooth.peak, 0, 1),
       silence: clamp(this.smooth.silence, 0, 1),
