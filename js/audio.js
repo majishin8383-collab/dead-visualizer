@@ -66,7 +66,7 @@ export class AudioEngine {
       silence: 1,
     };
 
-    // Motion state: phase can accumulate; speed is recomputed fresh per frame.
+    // Motion state: speed is recomputed fresh per frame.
     this.motion = {
       speed: 0,
     };
@@ -178,20 +178,24 @@ export class AudioEngine {
     this.smooth.silence = followEnvelope(this.smooth.silence, this.raw.silence, 10, 3.5, dt);
 
     // Speed is derived fresh from live envelope state every frame (no ratcheting).
-    // Units are phase-cycles per second, guided by musical energy + onsets.
+    // Units are normalized intensity, guided by musical transients.
     const highsMotionInfluence = Math.min(this.smooth.highs * 0.1, 0.15);
     this.motion.speed =
       clamp(0.03 + this.smooth.bass * 0.75 + this.smooth.mids * 0.2 + this.smooth.onset * 0.12 + highsMotionInfluence, 0.02, 1.8) *
       0.4;
 
+    // Build transport directly from rhythmic content (no frame-to-frame accumulation).
+    const rhythmicTransport = clamp(this.smooth.onset * 0.72 + this.smooth.peak * 0.2 + this.smooth.bass * 0.18, 0, 1);
+
     // Hard-cut transport in silence so visuals can drop fully to black immediately.
     if (this.smooth.silence > SILENCE_THRESHOLD) {
       this.transportPhase = 0;
       this.transport = 0;
+      this.motion.speed = 0;
     } else {
-      // Phase accumulates for animation continuity; exposed transport is normalized phase [0..1].
-      this.transportPhase = (this.transportPhase + this.motion.speed * dt) % 1;
-      this.transport = this.transportPhase;
+      // Keep phase/debug channel aligned to transport intensity to avoid apparent self-acceleration.
+      this.transportPhase = rhythmicTransport;
+      this.transport = rhythmicTransport;
     }
 
     if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 500) {
