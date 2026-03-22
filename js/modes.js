@@ -190,21 +190,33 @@ void main(){
   } else if (u_mode == 2) {
     vec3 freshInput = texture(u_liquid, uv).rgb;
 
-    float zoomFactor = 0.988 - (bass * 0.008);
-    float rotationAngle = max(0.001, 0.005 + (bass * 0.015));
+    float intensity = clamp(bass * 0.72 + energy * 0.56 + onset * 0.4, 0.0, 1.0);
+    float phase = smoothstep(0.2, 0.85, intensity);
+    float zoomFactor = mix(0.992 - (bass * 0.004), 0.976 - (bass * 0.014), phase);
+    float rotationAngle = max(0.001, mix(0.002 + (bass * 0.008), 0.010 + (bass * 0.032), phase));
 
     vec2 feedbackUv = (uv - 0.5) * zoomFactor + 0.5;
     feedbackUv = rotateAroundCenter(feedbackUv, rotationAngle);
+    vec2 fromCenter = feedbackUv - 0.5;
+    float radius = length(fromCenter);
+    float vortexTwist = (0.006 + bass * 0.01) * (1.0 - radius) * (0.35 + phase * 1.8);
+    feedbackUv = rotateAroundCenter(feedbackUv, vortexTwist);
+    vec2 hurricaneDrift = vec2(
+      sin(u_time * 0.43 + radius * 17.0),
+      cos(u_time * 0.39 - radius * 15.0)
+    ) * (0.0012 + phase * 0.0034) * (0.5 + intensity);
+    feedbackUv += hurricaneDrift;
 
-    vec2 chromaOffset = vec2(0.003, 0.001);
+    vec2 chromaOffset = mix(vec2(0.002, 0.0008), vec2(0.006, 0.002), phase);
     float feedbackR = texture(u_feedback, feedbackUv + chromaOffset).r;
     float feedbackG = texture(u_feedback, feedbackUv).g;
     float feedbackB = texture(u_feedback, feedbackUv - chromaOffset).b;
     vec3 feedbackSample = vec3(feedbackR, feedbackG, feedbackB);
 
-    scene = feedbackSample * 0.88 + freshInput * 0.12;
-    scene *= 1.22;
-    scene = mix(scene, max(scene, freshInput * 1.1), 0.25);
+    float feedbackWeight = mix(0.86, 0.94, phase);
+    scene = feedbackSample * feedbackWeight + freshInput * (1.0 - feedbackWeight);
+    scene = mix(scene, max(scene, freshInput * 1.35), 0.35 + phase * 0.2);
+    scene *= 1.18 + phase * 0.25 + intensity * 0.12;
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
   } else {
