@@ -232,9 +232,13 @@ void main(){
 
     vec2 z = z0;
     float iter = 0.0;
+    float orbitTrap = 10.0;
+    float filament = 0.0;
     for(int i = 0; i < MAX_ITER; i++){
       if(dot(z, z) > 4.0) break;
       z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + julia;
+      orbitTrap = min(orbitTrap, length(z + vec2(0.35, -0.22)));
+      filament += exp(-6.0 * abs(z.x * z.y)) * 0.015;
       iter += 1.0;
     }
 
@@ -243,7 +247,9 @@ void main(){
     float t = clamp(smoothIter / float(MAX_ITER), 0.0, 1.0);
 
     float hueShift = u_time * 0.1 + highs * 0.3;
-    float paletteT = t + hueShift;
+    float trapGlow = exp(-orbitTrap * 7.0);
+    float branch = atan(z.y, z.x) * 0.15915494 + 0.5;
+    float paletteT = hueShift + t * 0.45 + branch * 0.35 + trapGlow * 0.5 + filament;
     vec3 baseCol = 0.5 + 0.5 * cos(6.28318 * (paletteT + vec3(0.0, 0.33, 0.67)));
     baseCol = pow(baseCol, vec3(0.8));
     baseCol *= 1.4;
@@ -252,12 +258,12 @@ void main(){
     vec3 deepBlack = vec3(0.003, 0.004, 0.012);
     vec3 col = mix(baseCol, deepBlack, insideMask);
 
-    float boundary = smoothstep(0.0, 1.0, t) * (1.0 - insideMask);
+    float boundary = smoothstep(0.08, 0.95, trapGlow + filament + t * 0.3) * (1.0 - insideMask);
     vec3 accent = vec3(0.06, 0.95, 1.0) * (0.6 + 0.4 * sin(paletteT * 6.28318 + 1.2))
                 + vec3(1.0, 0.14, 0.84) * (0.4 + 0.6 * sin(paletteT * 6.28318 + 3.7))
                 + vec3(0.22, 1.0, 0.34) * (0.35 + 0.65 * sin(paletteT * 6.28318 + 5.1))
                 + vec3(1.0, 0.42, 0.04) * (0.3 + 0.7 * sin(paletteT * 6.28318 + 2.4));
-    col += accent * boundary * 0.22;
+    col += accent * boundary * (0.18 + trapGlow * 0.55);
 
     float energyPulse = 1.0 + energy * 0.45 + 0.08 * sin(u_time * 7.0 + iter * 0.08);
     scene = min(col * energyPulse, vec3(1.2));
