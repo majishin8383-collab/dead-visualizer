@@ -1,11 +1,11 @@
 export const CONFIG = {
-  buildTag: "dv-101-fix-transport",
+  buildTag: "dv-102-rebuild-modes-2-3-4",
   modes: {
     names: {
       1: "Liquid Tie-Dye",
-      2: "Feedback Tunnel",
-      3: "Fractal Bloom",
-      4: "Chaos",
+      2: "Liquid Feedback Swirl",
+      3: "Liquid Kaleido Feedback",
+      4: "Peak Show State",
     },
     defaultMode: 1,
     autoCycleSeconds: 18,
