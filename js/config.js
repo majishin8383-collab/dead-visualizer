@@ -1,10 +1,10 @@
 export const CONFIG = {
-  buildTag: "dv-102-rebuild-modes-2-3-4",
+  buildTag: "dv-105-launch-screen",
   modes: {
     names: {
       1: "Liquid Tie-Dye",
       2: "Liquid Feedback Swirl",
-      3: "Liquid Kaleido Feedback",
+      3: "Liquid Kaleido",
       4: "Peak Show State",
     },
     defaultMode: 1,
