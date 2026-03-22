@@ -71,6 +71,26 @@ vec3 toneMap(vec3 c){
   return pow(c, vec3(0.95));
 }
 
+vec3 liquidPaletteStop(float i){
+  if(i < 0.5) return vec3(0.00, 0.90, 1.00); // cyan
+  if(i < 1.5) return vec3(0.12, 0.28, 1.00); // blue
+  if(i < 2.5) return vec3(0.95, 0.10, 1.00); // magenta
+  if(i < 3.5) return vec3(0.58, 0.10, 0.95); // purple
+  if(i < 4.5) return vec3(1.00, 0.09, 0.18); // red
+  if(i < 5.5) return vec3(1.00, 0.38, 0.00); // orange
+  if(i < 6.5) return vec3(1.00, 0.88, 0.08); // yellow
+  return vec3(0.15, 0.92, 0.34);             // occasional green
+}
+
+vec3 liquidPalette(float t){
+  float x = fract(t) * 8.0;
+  float i = floor(x);
+  float f = fract(x);
+  vec3 a = liquidPaletteStop(i);
+  vec3 b = liquidPaletteStop(mod(i + 1.0, 8.0));
+  return mix(a, b, f);
+}
+
 vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float transport){
   float t = u_time * (0.18 + energy * 0.34);
 
@@ -113,27 +133,44 @@ vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float ener
   float veinMask = smoothstep(0.2, 0.92, fbm(q * 3.2 + vec2(9.0, -5.0)));
   float eddies = fbm(q * 5.4 - vec2(t * 0.7, -t * 0.65));
 
-  float warmCool = sin(q.x * 1.8 - q.y * 1.2 + t * 0.41 + body * 2.7);
-  vec3 cool = vec3(0.05, 0.72, 1.0);
-  vec3 warm = vec3(1.0, 0.24, 0.11);
-  vec3 col = mix(cool, warm, smoothstep(-0.8, 0.8, warmCool));
+  float detail = body * 0.78 + eddies * 0.42 + veins * 0.24;
 
-  float detail = body * 0.72 + eddies * 0.34 + veins * 0.18;
-  col *= 0.62 + detail * 1.28;
+  // Layered color fields with independent time scales for depth.
+  float hueSpin = u_time * (0.024 + energy * 0.03 + mids * 0.02);
+  float bassWarm = smoothstep(0.16, 0.92, bass);
+  float baseT = detail * 0.34 + fbm(q * 0.95 + vec2(2.7, -3.3)) * 0.48 + hueSpin;
+  float midT = detail * (0.56 + mids * 0.36) + veins * 0.08 + u_time * (0.045 + mids * 0.08);
+  float hiT = fbm(q * 8.8 + vec2(u_time * 0.8, -u_time * 1.0)) * 0.35 + hueSpin * 1.7 + highs * 0.15;
 
-  // Moving color veins.
-  vec3 veinCol = mix(vec3(1.0, 0.18, 0.8), vec3(0.1, 0.82, 1.0), 0.5 + 0.5 * sin(t + q.y * 3.0));
-  col += veinCol * smoothstep(0.35, 0.95, veins * veinMask) * (0.2 + mids * 0.35);
+  // Bass warms the palette and briefly boosts contrast.
+  float warmShift = bassWarm * (0.12 + onset * 0.08);
+  vec3 baseCol = liquidPalette(baseT + warmShift);
+  vec3 midCol = liquidPalette(midT + warmShift * 1.4 + mids * 0.05);
+  vec3 hiCol = liquidPalette(hiT + warmShift * 2.2 + 0.05 * sin(u_time * 0.9 + highs * 5.0));
 
-  // High-frequency edge shimmer (subtle).
-  float edge = smoothstep(0.46, 0.78, abs(fract(detail * 2.2) - 0.5) * 2.0);
-  col += vec3(0.16, 0.24, 0.34) * edge * highs * (0.08 + 0.2 * zone);
+  vec3 col = baseCol * 0.56 + midCol * 0.34 + hiCol * (0.1 + highs * 0.1);
 
-  // Saturation + contrast boost without clipping.
+  // Sharper oil/water boundary veins between zones.
+  float boundary = abs(fract((body + veins * 0.23 + eddies * 0.17) * (5.8 + mids * 2.7)) - 0.5) * 2.0;
+  float thinVein = smoothstep(0.84, 0.985, boundary) * veinMask;
+  vec3 veinCol = liquidPalette(midT + 0.31 + highs * 0.2);
+  vec3 antiCol = 1.0 - veinCol;
+  col = mix(col, antiCol * 0.85 + veinCol * 0.35, thinVein * (0.34 + mids * 0.24));
+
+  // High frequency shimmer from highs without clipping to white.
+  float shimmer = smoothstep(0.48, 0.94, fbm(q * 12.5 + vec2(u_time * 2.0, -u_time * 1.7)));
+  col += hiCol * shimmer * highs * 0.13;
+
+  // Remove flat areas with subtle chroma micro-variation everywhere.
+  float micro = fbm(q * 14.2 + vec2(1.1 * u_time, -0.9 * u_time)) - 0.5;
+  col *= 0.9 + detail * 0.52 + micro * 0.18;
+
+  // Saturation and contrast controls with highlight clamp.
   float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
-  col = mix(vec3(luma), col, 1.35);
-  col = (col - 0.5) * (1.2 + 0.35 * mids) + 0.5;
-  col *= 0.98 + onset * 0.22;
+  col = mix(vec3(luma), col, 1.58 + 0.22 * mids);
+  col = (col - 0.5) * (1.22 + 0.25 * mids + bassWarm * 0.18) + 0.5;
+  col *= 1.0 + onset * 0.16;
+  col = min(col, vec3(1.15));
   return max(col, 0.0);
 }
 
