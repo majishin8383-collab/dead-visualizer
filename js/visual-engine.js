@@ -117,10 +117,15 @@ export class VisualEngine {
       dt,
       blackout,
       audio,
+      events,
     } = params;
 
     const gl = this.gl;
     const safeMode = this.modeFailure.has(mode) ? 1 : mode;
+
+    // Solo icon events are planned as transient overlays in shader-space.
+    // We intentionally keep this as a no-op hook until solo detection + glyph rendering lands.
+    void events;
 
     try {
       gl.disable(gl.BLEND);
