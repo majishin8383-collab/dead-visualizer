@@ -212,18 +212,23 @@ void main(){
     float feedbackG = texture(u_feedback, feedbackUv).g;
     float feedbackB = texture(u_feedback, feedbackUv - chromaOffset).b;
     vec3 feedbackSample = vec3(feedbackR, feedbackG, feedbackB);
+    vec3 twistedFresh = texture(u_liquid, feedbackUv).rgb;
+    vec3 freshVortex = mix(freshInput, twistedFresh, 0.82);
 
-    float feedbackWeight = mix(0.86, 0.94, phase);
-    scene = feedbackSample * feedbackWeight + freshInput * (1.0 - feedbackWeight);
-    scene = mix(scene, max(scene, freshInput * 1.35), 0.35 + phase * 0.2);
-    scene *= 1.18 + phase * 0.25 + intensity * 0.12;
+    float feedbackEnergy = dot(feedbackSample, vec3(0.2126, 0.7152, 0.0722));
+    float feedbackBootstrap = 1.0 - smoothstep(0.03, 0.18, feedbackEnergy);
+    float feedbackWeightBase = mix(0.72, 0.9, phase);
+    float feedbackWeight = mix(feedbackWeightBase, 0.18, feedbackBootstrap);
+    scene = feedbackSample * feedbackWeight + freshVortex * (1.0 - feedbackWeight);
+    scene = mix(scene, max(scene, freshVortex * 1.42), 0.44 + phase * 0.22);
+    scene *= 1.28 + phase * 0.32 + intensity * 0.16;
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
   } else {
     scene = texture(u_liquid, uv).rgb;
   }
 
-  float blackoutGain = u_blackout;
+  float blackoutGain = (u_mode == 2) ? u_blackout * 0.35 : u_blackout;
   outColor = vec4(finalize(scene, blackoutGain), 1.0);
 }`;
 
