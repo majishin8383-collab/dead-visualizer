@@ -1,11 +1,11 @@
 export const CONFIG = {
-  buildTag: "dv-109-unified-liquid-system",
+  buildTag: "dv-111-reset-modes",
   modes: {
     names: {
       1: "Liquid Tie-Dye",
-      2: "Liquid Feedback Swirl",
-      3: "Liquid Kaleido",
-      4: "Peak Show State",
+      2: "Liquid Tie-Dye (2)",
+      3: "Liquid Tie-Dye (3)",
+      4: "Liquid Tie-Dye (4)",
     },
     defaultMode: 1,
     autoCycleSeconds: 18,

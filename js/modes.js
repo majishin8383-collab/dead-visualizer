@@ -158,85 +158,6 @@ vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float ener
   return max(col, 0.0);
 }
 
-vec2 mirrorWrap(vec2 uv){
-  return abs(fract(uv) * 2.0 - 1.0);
-}
-
-vec3 sampleFeedbackChromatic(vec2 uv){
-  vec2 rOff = vec2(0.003, 0.001);
-  vec2 bOff = -rOff;
-  vec3 c;
-  c.r = texture(u_feedback, mirrorWrap(uv + rOff)).r;
-  c.g = texture(u_feedback, mirrorWrap(uv)).g;
-  c.b = texture(u_feedback, mirrorWrap(uv + bOff)).b;
-  return c;
-}
-
-vec3 modeFeedbackSwirl(vec2 uv, float bass, float energy, float rotationBase, float zoomBase, float mixFresh){
-  float zoomFactor = zoomBase - bass * 0.008;
-  float rotation = max(0.001, rotationBase + bass * 0.015);
-
-  vec2 center = vec2(0.5);
-  vec2 q = uv - center;
-  q = rot(rotation) * q;
-  q /= max(zoomFactor, 0.90);
-  vec2 fbUv = q + center;
-
-  vec3 previous = sampleFeedbackChromatic(fbUv);
-  vec3 fresh = texture(u_liquid, mirrorWrap(uv)).rgb;
-  return mix(previous, fresh, mixFresh);
-}
-
-vec3 modeKaleido(vec2 uv, float bass, float mids){
-  vec2 center = vec2(0.5);
-  float seg = 6.28318530718 / 8.0;
-
-  float pulse = 1.0 + bass * 0.06 * exp(-u_burstAge * 10.0);
-  vec2 local = (uv - center) / pulse;
-
-  float a = atan(local.y, local.x);
-  float r = length(local);
-  float rotation = 0.002 + mids * 0.008;
-  a += u_time * rotation;
-
-  float sectorIndex = floor(a / seg);
-  float folded = mod(a, seg);
-  if (mod(sectorIndex, 2.0) > 0.5) {
-    folded = seg - folded;
-  }
-
-  vec2 kalUv = vec2(cos(folded), sin(folded)) * r + center;
-  vec3 liquid = texture(u_liquid, mirrorWrap(kalUv)).rgb;
-
-  vec2 zoomUv = (uv - center) / 0.992 + center;
-  vec3 depth = texture(u_feedback, mirrorWrap(zoomUv)).rgb;
-
-  float seam = smoothstep(0.01, 0.0, min(folded, seg - folded));
-  vec3 col = mix(depth, liquid, 0.22);
-  col += liquid * seam * 0.14;
-  return col;
-}
-
-vec3 modePeakShow(vec2 uv, float bass, float energy){
-  float burst = sat(u_transientPulse);
-  float distort = sin(uv.y * 8.0 + u_time) * bass * 0.03;
-  vec2 duv = uv + vec2(distort, 0.0);
-
-  vec3 base = modeFeedbackSwirl(duv, bass, energy, 0.012, 0.975, 0.12);
-
-  float bloomPulse = burst * exp(-u_burstAge * 6.0);
-  vec2 fromCenter = uv - 0.5;
-  float radial = exp(-dot(fromCenter, fromCenter) * (18.0 - bloomPulse * 10.0));
-  base += base * radial * bloomPulse * 0.8;
-
-  if (u_hardTransient > 0.5) {
-    base = vec3(1.0) - base;
-  }
-
-  base = base / (1.0 + base * 1.25);
-  return max(base, 0.0);
-}
-
 vec3 finalize(vec3 col, float blackout){
   col = toneMap(col);
   col *= (1.0 - blackout);
@@ -261,14 +182,14 @@ void main(){
   if (u_mode == 1) {
     scene = texture(u_liquid, uv).rgb;
   } else if (u_mode == 2) {
-    scene = modeFeedbackSwirl(uv, bass, energy, 0.005, 0.988, 0.12);
+    scene = texture(u_liquid, uv).rgb;
   } else if (u_mode == 3) {
-    scene = modeKaleido(uv, bass, mids);
+    scene = texture(u_liquid, uv).rgb;
   } else {
-    scene = modePeakShow(uv, bass, energy);
+    scene = texture(u_liquid, uv).rgb;
   }
 
-  float blackoutGain = (u_mode == 2) ? (u_blackout * 0.97) : u_blackout;
+  float blackoutGain = u_blackout;
   outColor = vec4(finalize(scene, blackoutGain), 1.0);
 }`;
 
