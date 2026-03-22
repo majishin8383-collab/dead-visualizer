@@ -43,6 +43,7 @@ export class Renderer {
 
   setMode(mode) {
     this.mode = mode;
+    this.visual.setMode?.(mode);
     this.updateHudMode();
   }
 
