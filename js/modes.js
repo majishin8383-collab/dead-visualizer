@@ -204,112 +204,54 @@ void main(){
   } else if (u_mode == 2) {
     const float PI = 3.14159265;
     const float N_FOLD = 5.0;
-    const float BLOOM_SPACING = 6.0;
-    const float BLOOM_START_SCALE = 0.3;
-    const float BLOOM_FADE_START_SCALE = 6.0;
-    const float BLOOM_MAX_SCALE = 8.0;
-    const float BLOOM_GROWTH_PER_SEC = 1.5; // 0.025/frame at ~60fps
     const int MAX_ITER = 256;
-    const int EXTRA_ITER = 64;
 
-    vec2 p0 = (uv - 0.5) * 2.0;
-    p0.x *= u_resolution.x / u_resolution.y;
-    p0 = rot(u_time * 0.18) * p0;
+    vec2 p = (uv - 0.5) * 2.5;
+    p.x *= u_resolution.x / u_resolution.y;
 
-    float layerAnchor = floor(u_time / BLOOM_SPACING);
+    float angle = u_time * 0.02;
+    p = vec2(cos(angle) * p.x - sin(angle) * p.y,
+             sin(angle) * p.x + cos(angle) * p.y);
 
-    vec3 accum = vec3(0.0);
-    float weightSum = 0.0;
-    for (int layer = 0; layer < 3; layer++) {
-      float birth = (layerAnchor - float(layer)) * BLOOM_SPACING;
-      float age = u_time - birth;
-      if (age < 0.0) continue;
+    float r = length(p);
+    float origAngle = atan(p.y, p.x);
+    float segAngle = 2.0 * PI / N_FOLD;
+    float segPos = mod(origAngle, segAngle);
+    if (segPos < 0.0) segPos += segAngle;
 
-      float scale = BLOOM_START_SCALE + age * BLOOM_GROWTH_PER_SEC;
-      if (scale > BLOOM_MAX_SCALE) continue;
-      vec2 p = p0 / scale;
-      p *= 1.4;
-      float opacity = (scale <= BLOOM_FADE_START_SCALE)
-        ? 1.0
-        : 1.0 - smoothstep(BLOOM_FADE_START_SCALE, BLOOM_MAX_SCALE, scale);
+    float sectorIndex = floor(origAngle / segAngle);
+    float mirroredAngle = (mod(sectorIndex, 2.0) == 1.0) ? (segAngle - segPos) : segPos;
+    float seamDist = min(segPos, segAngle - segPos);
+    float seamBlend = smoothstep(0.0, 0.05, seamDist);
+    float a = mix(mirroredAngle, segPos, seamBlend);
+    p = vec2(cos(a), sin(a)) * r;
 
-      float r = length(p);
-      float a = atan(p.y, p.x);
-      float sector = 2.0 * PI / N_FOLD;
-      float segPos = mod(a, sector);
-      float mirrored = abs(segPos - 0.5 * sector);
-      float centered = segPos - 0.5 * sector;
-      float seamDist = min(segPos, sector - segPos);
-      float blend = smoothstep(0.0, 0.05, seamDist);
-      float softA = mix(mirrored, centered, blend);
-      p = vec2(cos(softA), sin(softA)) * r;
+    vec2 z = p;
+    vec2 julia = vec2(
+      -0.4 + 0.15 * cos(u_time * 0.07),
+       0.6 + 0.10 * sin(u_time * 0.09)
+    );
 
-      vec2 z = p;
-      z += 0.3 * vec2(
-        sin(z.y * 2.1 + u_time * 0.05),
-        cos(z.x * 1.9 + u_time * 0.04)
-      );
-      vec2 julia = vec2(
-        -0.4 + 0.15 * cos(u_time * 0.07),
-         0.6 + 0.1  * sin(u_time * 0.09)
-      );
-
-      float iter = 0.0;
-      float trap = 10.0;
-      float filament = 0.0;
-      for (int i = 0; i < MAX_ITER; i++) {
-        if (dot(z, z) > 4.0) break;
-        z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + julia;
-        trap = min(trap, length(z + vec2(0.18, -0.26)));
-        filament += exp(-7.0 * abs(z.x * z.y)) * 0.018;
-        iter += 1.0;
-      }
-
-      vec2 zDetail = z;
-      vec2 juliaDetail = julia * 0.98 + vec2(0.01, -0.01);
-      float iterDetail = 0.0;
-      for (int i = 0; i < EXTRA_ITER; i++) {
-        if (dot(zDetail, zDetail) > 4.0) break;
-        zDetail = vec2(zDetail.x * zDetail.x - zDetail.y * zDetail.y, 2.0 * zDetail.x * zDetail.y) + juliaDetail;
-        iterDetail += 1.0;
-      }
-
-      float z2 = max(dot(z, z), 1.0001);
-      float smoothIter = iter - log2(log2(z2)) + 4.0;
-      float t = smoothIter / float(MAX_ITER);
-      float z2d = max(dot(zDetail, zDetail), 1.0001);
-      float smoothDetail = iterDetail - log2(log2(z2d)) + 4.0;
-      float tDetail = smoothDetail / float(EXTRA_ITER);
-      vec3 col = 0.5 + 0.5 * cos(6.28318 * (
-        vec3(t * 3.0, t * 3.0 + 0.33, t * 3.0 + 0.67) + u_time * 0.08 + mids * 0.15
-      ));
-      vec3 colDetail = 0.5 + 0.5 * cos(6.28318 * (
-        vec3(tDetail * 3.0, tDetail * 3.0 + 0.33, tDetail * 3.0 + 0.67) + u_time * 0.08 + mids * 0.15 + 0.11
-      ));
-      col = mix(col, colDetail, 0.3);
-      if (iter >= float(MAX_ITER)) col = vec3(0.0);
-      col = pow(col, vec3(0.7));
-      col *= 1.5;
-      col = clamp(col, 0.0, 1.0);
-
-      float trapEdge = exp(-trap * 6.5);
-      float boundary = clamp((trapEdge * 1.4 + filament * 0.9 + t * 0.2) * (1.0 - step(float(MAX_ITER) - 0.5, iter)), 0.0, 1.0);
-      col *= 1.0 + bass * 0.6 * boundary;
-
-      float shimmer = (0.5 + 0.5 * sin(u_time * 30.0 + smoothIter * 0.21)) * highs;
-      col += col * shimmer * boundary * 0.2;
-
-      if (u_hardTransient > 0.001) {
-        col = mix(col, 1.0 - col, clamp(u_hardTransient * 0.55, 0.0, 0.6));
-      }
-
-      accum += col * opacity;
-      weightSum += opacity;
+    float iter = 0.0;
+    for (int i = 0; i < MAX_ITER; i++) {
+      if (dot(z, z) > 4.0) break;
+      z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + julia;
+      iter += 1.0;
     }
 
-    vec3 layerCol = (weightSum > 0.001) ? (accum / weightSum) : vec3(0.0);
-    scene = layerCol * (0.95 + 0.25 * energy);
-    scene = min(scene, vec3(1.2));
+    vec3 col = vec3(0.0);
+    if (iter < float(MAX_ITER)) {
+      float t = iter / float(MAX_ITER);
+      float hueTime = u_time * (0.08 + highs * 0.02) + mids * 0.1;
+      col = 0.5 + 0.5 * cos(6.28318 * (
+        vec3(t * 3.0, t * 3.0 + 0.33, t * 3.0 + 0.67) + hueTime
+      ));
+      col = pow(col, vec3(0.7)) * 1.5;
+      col *= 1.0 + bass * 0.5;
+      col = clamp(col, 0.0, 1.0);
+    }
+
+    scene = col;
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
   } else {
