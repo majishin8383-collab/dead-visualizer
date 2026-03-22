@@ -188,47 +188,73 @@ void main(){
   if (u_mode == 1) {
     scene = texture(u_liquid, uv).rgb;
   } else if (u_mode == 2) {
-    vec3 freshInput = texture(u_liquid, uv).rgb;
+    const int MAX_ITER = 180;
 
-    float intensity = clamp(bass * 0.72 + energy * 0.56 + onset * 0.4, 0.0, 1.0);
-    float phase = smoothstep(0.2, 0.85, intensity);
-    float zoomFactor = mix(0.992 - (bass * 0.004), 0.976 - (bass * 0.014), phase);
-    float rotationAngle = max(0.001, mix(0.002 + (bass * 0.008), 0.010 + (bass * 0.032), phase));
+    float zoomSpeed = 0.12;
+    float loopPhase = fract(u_time * zoomSpeed);
+    float zoom = 1.4 * exp(-loopPhase * 4.8) + 0.012;
 
-    vec2 feedbackUv = (uv - 0.5) * zoomFactor + 0.5;
-    feedbackUv = rotateAroundCenter(feedbackUv, rotationAngle);
-    vec2 fromCenter = feedbackUv - 0.5;
-    float radius = length(fromCenter);
-    float vortexTwist = (0.006 + bass * 0.01) * (1.0 - radius) * (0.35 + phase * 1.8);
-    feedbackUv = rotateAroundCenter(feedbackUv, vortexTwist);
-    vec2 hurricaneDrift = vec2(
-      sin(u_time * 0.43 + radius * 17.0),
-      cos(u_time * 0.39 - radius * 15.0)
-    ) * (0.0012 + phase * 0.0034) * (0.5 + intensity);
-    feedbackUv += hurricaneDrift;
+    vec2 z0 = (uv - 0.5) * zoom;
+    z0.x *= u_resolution.x / u_resolution.y;
+    float angle = u_time * 0.018;
+    z0 = rot(angle) * z0;
+    float sector = 6.28318 / 6.0;
+    float mandalaA = atan(z0.y, z0.x);
+    float mandalaR = length(z0);
+    mandalaA = mod(mandalaA, sector);
+    mandalaA = abs(mandalaA - sector * 0.5);
+    z0 = mandalaR * vec2(cos(mandalaA), sin(mandalaA));
 
-    vec2 chromaOffset = mix(vec2(0.002, 0.0008), vec2(0.006, 0.002), phase);
-    float feedbackR = texture(u_feedback, feedbackUv + chromaOffset).r;
-    float feedbackG = texture(u_feedback, feedbackUv).g;
-    float feedbackB = texture(u_feedback, feedbackUv - chromaOffset).b;
-    vec3 feedbackSample = vec3(feedbackR, feedbackG, feedbackB);
-    vec3 twistedFresh = texture(u_liquid, feedbackUv).rgb;
-    vec3 freshVortex = mix(freshInput, twistedFresh, 0.82);
+    vec2 julia = vec2(
+      0.7885 * cos(u_time * 0.1),
+      0.7885 * sin(u_time * 0.13)
+    );
+    julia += vec2(mids * 0.1, mids * -0.08);
 
-    float feedbackEnergy = dot(feedbackSample, vec3(0.2126, 0.7152, 0.0722));
-    float feedbackBootstrap = 1.0 - smoothstep(0.03, 0.18, feedbackEnergy);
-    float feedbackWeightBase = mix(0.72, 0.9, phase);
-    float feedbackWeight = mix(feedbackWeightBase, 0.18, feedbackBootstrap);
-    scene = feedbackSample * feedbackWeight + freshVortex * (1.0 - feedbackWeight);
-    scene = mix(scene, max(scene, freshVortex * 1.42), 0.44 + phase * 0.22);
-    scene *= 1.28 + phase * 0.32 + intensity * 0.16;
+    vec2 z = z0;
+    float iter = 0.0;
+    float orbitTrap = 10.0;
+    float filament = 0.0;
+    for(int i = 0; i < MAX_ITER; i++){
+      if(dot(z, z) > 4.0) break;
+      z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + julia;
+      orbitTrap = min(orbitTrap, length(z + vec2(0.35, -0.22)));
+      filament += exp(-6.0 * abs(z.x * z.y)) * 0.015;
+      iter += 1.0;
+    }
+
+    float zz = max(dot(z, z), 1.0001);
+    float smoothIter = iter - log2(log2(zz)) + 4.0;
+    float t = clamp(smoothIter / float(MAX_ITER), 0.0, 1.0);
+
+    float hueShift = u_time * 0.1 + highs * 0.24;
+    float trapGlow = exp(-orbitTrap * 7.0);
+    float branch = atan(z.y, z.x) * 0.15915494 + 0.5;
+    float paletteT = hueShift + t * 0.45 + branch * 0.35 + trapGlow * 0.5 + filament;
+    vec3 baseCol = 0.5 + 0.5 * cos(6.28318 * (paletteT + vec3(0.0, 0.33, 0.67)));
+    baseCol = pow(baseCol, vec3(0.8));
+    baseCol *= 1.4;
+
+    float insideMask = smoothstep(float(MAX_ITER) - 1.0, float(MAX_ITER), iter);
+    vec3 deepBlack = vec3(0.003, 0.004, 0.012);
+    vec3 col = mix(baseCol, deepBlack, insideMask);
+
+    float boundary = smoothstep(0.05, 0.92, trapGlow + filament + t * 0.35) * (1.0 - insideMask);
+    vec3 accent = vec3(0.06, 0.95, 1.0) * (0.6 + 0.4 * sin(paletteT * 6.28318 + 1.2))
+                + vec3(1.0, 0.14, 0.84) * (0.4 + 0.6 * sin(paletteT * 6.28318 + 3.7))
+                + vec3(0.22, 1.0, 0.34) * (0.35 + 0.65 * sin(paletteT * 6.28318 + 5.1))
+                + vec3(1.0, 0.42, 0.04) * (0.3 + 0.7 * sin(paletteT * 6.28318 + 2.4));
+    col += accent * boundary * (0.18 + trapGlow * 0.55);
+
+    float energyPulse = 1.0 + energy * 0.34 + 0.05 * sin(u_time * 6.0 + iter * 0.06);
+    scene = min(col * energyPulse, vec3(1.2));
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
   } else {
     scene = texture(u_liquid, uv).rgb;
   }
 
-  float blackoutGain = (u_mode == 2) ? u_blackout * 0.35 : u_blackout;
+  float blackoutGain = u_blackout;
   outColor = vec4(finalize(scene, blackoutGain), 1.0);
 }`;
 
