@@ -8,7 +8,7 @@ uniform float u_dt;
 uniform float u_blackout;
 uniform int u_mode;
 uniform vec4 u_audioA; // bass, mids, highs, energy
-uniform vec4 u_audioB; // onset, peak, transport, silence
+uniform vec4 u_audioB; // onset, peak, transport, guitarDrive
 uniform sampler2D u_feedback;
 
 float sat(float x){ return clamp(x, 0.0, 1.0); }
@@ -92,84 +92,77 @@ vec3 liquidPalette(float t){
 }
 
 vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float transport){
-  float t = u_time * (0.18 + energy * 0.34);
+  float t = u_time * (0.22 + energy * 0.36) + transport * 0.035;
 
-  // Large-scale migration so the entire field drifts over time.
-  vec2 globalDrift = vec2(0.035, -0.028) * u_time + vec2(transport * 0.0009, -transport * 0.0007);
-  vec2 base = p * 0.86 + globalDrift;
+  // Strong baseline drift keeps the mode alive even in calmer passages.
+  vec2 globalDrift = vec2(0.08, -0.06) * u_time + vec2(transport * 0.0024, -transport * 0.0018);
+  vec2 base = p * 0.88 + globalDrift;
 
-  // Non-uniform turbulence mask creates calm and active zones.
-  float zone = smoothstep(0.28, 0.85, fbm(base * 0.55 + vec2(3.7, -1.9)));
-  float calmToTurbulent = mix(0.35, 1.35, zone);
+  // Curl-driven turbulence field with layered scales (no periodic stripe drivers).
+  vec2 flowLarge = flowNoise(base * 0.62 + vec2(t * 0.10, -t * 0.08));
+  vec2 flowMid = flowNoise(base * 1.45 + vec2(-t * 0.24, t * 0.20));
+  vec2 flowFine = flowNoise(base * 3.9 + vec2(t * 0.66, -t * 0.61));
 
-  // Audio pressure pulse from bass as expanding wavefronts.
-  vec2 bassOrigin = vec2(-0.27, 0.19);
-  float r = length(base - bassOrigin);
-  float pulse = sin(r * 11.5 - t * 9.2) * exp(-r * 1.6);
-  float bassPush = pulse * (0.09 + bass * 0.24 + onset * 0.16);
-  vec2 radial = normalize(base - bassOrigin + vec2(1e-4));
+  float c1 = curlField(base * 0.95 + vec2(t * 0.15, -t * 0.11));
+  float c2 = curlField(base * 1.85 + vec2(-t * 0.34, t * 0.27));
+  vec2 curlVec = normalize(vec2(-c1 - c2, c1 - c2) + vec2(1e-4));
 
-  // Layered flow field: large currents + medium swirls + small shimmer.
-  vec2 flowLarge = flowNoise(base * 0.68 + vec2(t * 0.12, -t * 0.09));
-  vec2 flowMid = flowNoise(base * 1.65 + vec2(-t * 0.28, t * 0.23));
-  float curl = curlField(base * 1.1 + vec2(t * 0.17, -t * 0.15));
-  vec2 swirl = vec2(-flowMid.y, flowMid.x) * (0.9 + 0.7 * curl);
-  vec2 flowSpark = flowNoise(base * 4.9 + vec2(t * 0.9, t * 0.7));
+  // Pressure folds from bass energy; pushes fluid outward from moving centers.
+  vec2 pressureCenterA = vec2(sin(t * 0.43), cos(t * 0.37)) * 0.34;
+  vec2 pressureCenterB = vec2(cos(t * 0.31), sin(t * 0.29)) * 0.27;
+  vec2 dpA = base - pressureCenterA;
+  vec2 dpB = base - pressureCenterB;
+  float pA = exp(-dot(dpA, dpA) * (1.8 + bass * 1.7));
+  float pB = exp(-dot(dpB, dpB) * (2.1 + bass * 1.2));
+  vec2 pressure = normalize(dpA + vec2(1e-4)) * pA * (0.22 + bass * 0.42)
+               + normalize(dpB + vec2(1e-4)) * pB * (0.18 + onset * 0.34);
 
-  float midWarp = 1.0 + mids * 2.2;
-  vec2 field = flowLarge * 1.0 + swirl * (0.62 * midWarp) + flowSpark * (0.12 + highs * 0.13);
-  field += radial * bassPush;
-  field *= calmToTurbulent;
+  float turbulence = 0.62 + mids * 0.78 + energy * 0.34;
+  vec2 field = flowLarge * 0.95 + flowMid * 0.62 + flowFine * (0.18 + highs * 0.16);
+  field += curlVec * (0.44 + mids * 0.52);
+  field += pressure;
+  field *= turbulence;
 
-  // UV advection through the flow field: pixels travel through currents.
+  // Semi-Lagrangian advection steps for organic rivers and eddies.
   vec2 q = base;
-  q += field * (0.85 + mids * 0.45);
-  vec2 field2 = flowNoise(q * 1.12 + vec2(t * 0.18, -t * 0.2));
-  q += vec2(-field2.y, field2.x) * (0.16 + mids * 0.28) * calmToTurbulent;
+  q += field * (0.62 + mids * 0.42);
+  vec2 q2 = q + flowNoise(q * 1.18 + vec2(t * 0.21, -t * 0.19)) * (0.34 + highs * 0.22);
+  q2 += vec2(-flowMid.y, flowMid.x) * (0.18 + mids * 0.24);
 
-  // Color veins and liquid body structure.
-  float body = fbm(q * (2.1 + mids * 2.6) + vec2(0.0, transport * 0.025));
-  float veins = sin(q.x * 10.5 + q.y * 7.6 + t * 2.3 + fbm(q * 3.8) * 4.0);
-  float veinMask = smoothstep(0.2, 0.92, fbm(q * 3.2 + vec2(9.0, -5.0)));
-  float eddies = fbm(q * 5.4 - vec2(t * 0.7, -t * 0.65));
+  float body = fbm(q2 * (2.0 + mids * 2.1) + vec2(0.0, transport * 0.03));
+  float dyeRivers = fbm(q2 * 3.3 + vec2(5.1, -3.7) + flowFine * 0.9);
+  float eddies = fbm(q2 * 6.4 - vec2(t * 0.53, -t * 0.47));
+  float ridges = 1.0 - abs(fbm(q2 * 4.8 + vec2(8.3, -6.4)) * 2.0 - 1.0);
 
-  float detail = body * 0.78 + eddies * 0.42 + veins * 0.24;
+  float riverMask = smoothstep(0.46, 0.82, dyeRivers + ridges * 0.26);
+  float foldMask = smoothstep(0.52, 0.9, body * 0.64 + eddies * 0.36 + bass * 0.18);
 
-  // Layered color fields with independent time scales for depth.
-  float hueSpin = u_time * (0.024 + energy * 0.03 + mids * 0.02);
-  float bassWarm = smoothstep(0.16, 0.92, bass);
-  float baseT = detail * 0.34 + fbm(q * 0.95 + vec2(2.7, -3.3)) * 0.48 + hueSpin;
-  float midT = detail * (0.56 + mids * 0.36) + veins * 0.08 + u_time * (0.045 + mids * 0.08);
-  float hiT = fbm(q * 8.8 + vec2(u_time * 0.8, -u_time * 1.0)) * 0.35 + hueSpin * 1.7 + highs * 0.15;
+  float hueSpin = u_time * (0.028 + energy * 0.036 + mids * 0.021) + transport * 0.0016;
+  float bassWarm = smoothstep(0.14, 0.9, bass);
+  float warmShift = bassWarm * (0.13 + onset * 0.1);
 
-  // Bass warms the palette and briefly boosts contrast.
-  float warmShift = bassWarm * (0.12 + onset * 0.08);
+  float baseT = body * 0.42 + hueSpin;
+  float riverT = dyeRivers * (0.55 + mids * 0.24) + hueSpin * 1.16 + eddies * 0.14;
+  float foamT = ridges * 0.4 + hueSpin * 1.85 + highs * 0.2;
+
   vec3 baseCol = liquidPalette(baseT + warmShift);
-  vec3 midCol = liquidPalette(midT + warmShift * 1.4 + mids * 0.05);
-  vec3 hiCol = liquidPalette(hiT + warmShift * 2.2 + 0.05 * sin(u_time * 0.9 + highs * 5.0));
+  vec3 riverCol = liquidPalette(riverT + warmShift * 1.45 + mids * 0.05);
+  vec3 foamCol = liquidPalette(foamT + warmShift * 2.1);
 
-  vec3 col = baseCol * 0.56 + midCol * 0.34 + hiCol * (0.1 + highs * 0.1);
+  vec3 col = mix(baseCol, riverCol, riverMask * (0.52 + mids * 0.22));
+  col = mix(col, foamCol, foldMask * (0.22 + highs * 0.18));
 
-  // Sharper oil/water boundary veins between zones.
-  float boundary = abs(fract((body + veins * 0.23 + eddies * 0.17) * (5.8 + mids * 2.7)) - 0.5) * 2.0;
-  float thinVein = smoothstep(0.84, 0.985, boundary) * veinMask;
-  vec3 veinCol = liquidPalette(midT + 0.31 + highs * 0.2);
-  vec3 antiCol = 1.0 - veinCol;
-  col = mix(col, antiCol * 0.85 + veinCol * 0.35, thinVein * (0.34 + mids * 0.24));
+  // High-frequency sparkle without linear banding.
+  float shimmer = smoothstep(0.6, 0.95, fbm(q2 * 11.0 + vec2(u_time * 1.7, -u_time * 1.5)));
+  col += foamCol * shimmer * highs * 0.12;
 
-  // High frequency shimmer from highs without clipping to white.
-  float shimmer = smoothstep(0.48, 0.94, fbm(q * 12.5 + vec2(u_time * 2.0, -u_time * 1.7)));
-  col += hiCol * shimmer * highs * 0.13;
+  float micro = fbm(q2 * 14.5 + vec2(1.2 * u_time, -1.0 * u_time)) - 0.5;
+  col *= 0.9 + body * 0.56 + micro * 0.16;
 
-  // Remove flat areas with subtle chroma micro-variation everywhere.
-  float micro = fbm(q * 14.2 + vec2(1.1 * u_time, -0.9 * u_time)) - 0.5;
-  col *= 0.9 + detail * 0.52 + micro * 0.18;
-
-  // Saturation and contrast controls with highlight clamp.
   float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
-  col = mix(vec3(luma), col, 1.58 + 0.22 * mids);
-  col = (col - 0.5) * (1.22 + 0.25 * mids + bassWarm * 0.18) + 0.5;
-  col *= 1.0 + onset * 0.16;
+  col = mix(vec3(luma), col, 1.54 + 0.24 * mids);
+  col = (col - 0.5) * (1.2 + 0.27 * mids + bassWarm * 0.2) + 0.5;
+  col *= 1.0 + onset * 0.15;
   col = min(col, vec3(1.15));
   return max(col, 0.0);
 }
@@ -296,7 +289,9 @@ void main(){
   float energy = u_audioA.w;
   float onset = u_audioB.x;
   float peak = u_audioB.y;
-  float transport = u_audioB.z;
+  float guitarDrive = clamp(u_audioB.w, 0.0, 1.0);
+  float transportScale = mix(24.0, 120.0, guitarDrive);
+  float transport = u_audioB.z * transportScale;
 
   vec3 scene;
   if (u_mode == 1) {

@@ -151,7 +151,7 @@ export class VisualEngine {
         audio.onset,
         audio.peak,
         audio.transport,
-        audio.silence
+        audio.guitar
       );
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
