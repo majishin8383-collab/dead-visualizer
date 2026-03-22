@@ -202,56 +202,79 @@ void main(){
   if (u_mode == 1) {
     scene = texture(u_liquid, uv).rgb;
   } else if (u_mode == 2) {
+    // dv-111: iterative fractal mandala engine in polar space.
     const float PI = 3.14159265;
-    const float N_FOLD = 5.0;
-    const int MAX_ITER = 256;
 
-    vec2 p = (uv - 0.5) * 2.5;
-    p.x *= u_resolution.x / u_resolution.y;
+    vec2 mp = p;
+    float r = length(mp) + 1e-5;
+    float a = atan(mp.y, mp.x);
 
-    float angle = u_time * 0.02;
-    p = vec2(cos(angle) * p.x - sin(angle) * p.y,
-             sin(angle) * p.x + cos(angle) * p.y);
+    // Angular repetition in polar domain for mandala symmetry.
+    float folds = 10.0 + floor(mids * 6.0);
+    float foldAngle = (2.0 * PI) / folds;
+    a = abs(mod(a, foldAngle) - 0.5 * foldAngle);
+    mp = vec2(cos(a), sin(a)) * r;
 
-    float r = length(p);
-    float origAngle = atan(p.y, p.x);
-    float segAngle = 2.0 * PI / N_FOLD;
-    float segPos = mod(origAngle, segAngle);
-    if (segPos < 0.0) segPos += segAngle;
+    // Recursive zoom in fractal space; bounded looping avoids runaway speed.
+    float zoom = u_time * (0.22 + bass * 0.12 + energy * 0.05);
+    float zoomLoop = mod(zoom, 6.0) - 3.0;
+    mp *= exp(zoomLoop);
 
-    float sectorIndex = floor(origAngle / segAngle);
-    float mirroredAngle = (mod(sectorIndex, 2.0) == 1.0) ? (segAngle - segPos) : segPos;
-    float seamDist = min(segPos, segAngle - segPos);
-    float seamBlend = smoothstep(0.0, 0.05, seamDist);
-    float a = mix(mirroredAngle, segPos, seamBlend);
-    p = vec2(cos(a), sin(a)) * r;
+    float burst = exp(-u_burstAge * 3.2) * u_hardTransient;
+    float distortAmt = 0.08 + mids * 0.22 + burst * 0.2;
+    vec2 q = mp + flowNoise(mp * (1.8 + highs * 1.4) + vec2(0.0, u_time * 0.1)) * distortAmt;
 
-    vec2 z = p;
-    vec2 julia = vec2(
-      -0.4 + 0.15 * cos(u_time * 0.07),
-       0.6 + 0.10 * sin(u_time * 0.09)
-    );
+    float trapMin = 1e4;
+    float trapAccum = 0.0;
+    float petals = 0.0;
+    float depthMix = 3.5 + bass * 2.0 + burst * 1.5;
 
-    float iter = 0.0;
-    for (int i = 0; i < MAX_ITER; i++) {
-      if (dot(z, z) > 4.0) break;
-      z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + julia;
-      iter += 1.0;
+    // REQUIRED recursive fractal construction loop.
+    for (int i = 0; i < 8; i++) {
+      float fi = float(i);
+      float active = step(fi, depthMix + 2.0);
+      vec2 wobble = vec2(
+        sin(u_time * (0.18 + fi * 0.03) + q.y * (1.5 + fi * 0.2)),
+        cos(u_time * (0.16 + fi * 0.04) - q.x * (1.7 + fi * 0.18))
+      ) * (0.04 + highs * 0.07);
+
+      q = abs(q + wobble);
+      float invDen = max(dot(q, q), 0.06 + 0.03 * bass);
+      q = q / invDen - vec2(0.72 + mids * 0.2, 0.66 + bass * 0.16);
+      q *= rot(0.14 + fi * (0.05 + mids * 0.02));
+
+      float l = length(q);
+      trapMin = min(trapMin, l);
+      trapAccum += active * exp(-l * (1.4 + fi * 0.24));
+      petals += active * exp(-abs(q.x * q.y) * (6.0 + fi * 0.8));
     }
 
-    vec3 col = vec3(0.0);
-    if (iter < float(MAX_ITER)) {
-      float t = iter / float(MAX_ITER);
-      float hueTime = u_time * (0.08 + highs * 0.02) + mids * 0.1;
-      col = 0.5 + 0.5 * cos(6.28318 * (
-        vec3(t * 3.0, t * 3.0 + 0.33, t * 3.0 + 0.67) + hueTime
-      ));
-      col = pow(col, vec3(0.7)) * 1.5;
-      col *= 1.0 + bass * 0.5;
-      col = clamp(col, 0.0, 1.0);
-    }
+    float d = length(q);
+    float structure = sat(trapAccum * 0.95 + petals * 0.2);
+    float centerRegen = exp(-length(mp) * (7.5 - bass * 2.2));
 
-    scene = col;
+    // Structural color from fractal output (not flat gradients / ring masks).
+    float hueDrift = u_time * (0.22 + highs * 0.12) + burst * 1.1;
+    vec3 col = vec3(
+      sin(d * 3.2 + trapAccum * 1.8 + hueDrift),
+      sin(d * 2.4 + petals * 1.2 + 2.0 + hueDrift * 0.9),
+      sin(d * 4.1 + trapMin * 6.0 + 4.0 + hueDrift * 1.1)
+    ) * 0.5 + 0.5;
+
+    vec3 warm = vec3(1.00, 0.35, 0.08);
+    vec3 cool = vec3(0.05, 0.88, 1.00);
+    vec3 violet = vec3(0.75, 0.15, 1.00);
+
+    col = mix(col, mix(violet, cool, sat(structure)), 0.55);
+    col = mix(col, warm, sat(0.25 + burst * 0.55 + onset * 0.25) * sat(petals));
+
+    float edge = sat(structure * 0.8 + centerRegen * 0.45);
+    col *= 0.35 + edge * 1.25;
+    col += centerRegen * mix(violet, cool, 0.5 + 0.5 * sin(u_time * 0.6 + trapAccum * 1.4));
+
+    // Compression prevents white clipping while preserving saturated detail.
+    col = col / (1.0 + max(col.r, max(col.g, col.b)) * 0.95);
+    scene = max(col, 0.0);
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
   } else {
