@@ -114,10 +114,10 @@ vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float ener
   vec2 flowMid = flowNoise(base * 1.65 + vec2(-t * 0.28, t * 0.23));
   float curl = curlField(base * 1.1 + vec2(t * 0.17, -t * 0.15));
   vec2 swirl = vec2(-flowMid.y, flowMid.x) * (0.9 + 0.7 * curl);
-  vec2 shimmer = flowNoise(base * 4.9 + vec2(t * 0.9, t * 0.7));
+  vec2 flowSpark = flowNoise(base * 4.9 + vec2(t * 0.9, t * 0.7));
 
   float midWarp = 1.0 + mids * 2.2;
-  vec2 field = flowLarge * 1.0 + swirl * (0.62 * midWarp) + shimmer * (0.12 + highs * 0.13);
+  vec2 field = flowLarge * 1.0 + swirl * (0.62 * midWarp) + flowSpark * (0.12 + highs * 0.13);
   field += radial * bassPush;
   field *= calmToTurbulent;
 
