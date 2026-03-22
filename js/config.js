@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-101B",
+  buildTag: "dv-101-fix-transport",
   modes: {
     names: {
       1: "Liquid Tie-Dye",
@@ -17,6 +17,7 @@ export const CONFIG = {
     echoCancellation: false,
     noiseSuppression: false,
     autoGainControl: false,
+    debugTransport: false,
   },
 
   blackout: {
