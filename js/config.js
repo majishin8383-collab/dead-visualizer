@@ -1,9 +1,9 @@
 export const CONFIG = {
-  buildTag: "dv-113-mode2-feedback-v2",
+  buildTag: "dv-114-mode2-fractal-tunnel",
   modes: {
     names: {
       1: "Liquid Tie-Dye",
-      2: "Feedback Hurricane",
+      2: "Fractal Neon Tunnel",
       3: "Liquid Tie-Dye (3)",
       4: "Liquid Tie-Dye (4)",
     },

@@ -170,6 +170,20 @@ vec2 rotateAroundCenter(vec2 uv, float angle){
   return centered + 0.5;
 }
 
+vec3 neonPalette(float t){
+  vec3 cyan = vec3(0.05, 0.92, 1.00);
+  vec3 magenta = vec3(0.96, 0.10, 0.94);
+  vec3 green = vec3(0.22, 1.00, 0.34);
+  vec3 purple = vec3(0.50, 0.15, 1.00);
+  vec3 orange = vec3(1.00, 0.42, 0.04);
+  float x = fract(t) * 5.0;
+  float i = floor(x);
+  float f = fract(x);
+  vec3 a = (i < 0.5) ? cyan : (i < 1.5) ? magenta : (i < 2.5) ? green : (i < 3.5) ? purple : orange;
+  vec3 b = (i < 0.5) ? magenta : (i < 1.5) ? green : (i < 2.5) ? purple : (i < 3.5) ? orange : cyan;
+  return mix(a, b, f);
+}
+
 void main(){
   vec2 uv = gl_FragCoord.xy / u_resolution;
   vec2 p = uv * 2.0 - 1.0;
@@ -188,47 +202,68 @@ void main(){
   if (u_mode == 1) {
     scene = texture(u_liquid, uv).rgb;
   } else if (u_mode == 2) {
-    vec3 freshInput = texture(u_liquid, uv).rgb;
+    float floorZoom = 0.15;
+    float zoomSpeed = floorZoom + 0.25 + bass * 0.3 + energy * 0.14;
+    float zoomT = u_time * zoomSpeed;
+    float zoomScale = exp(-zoomT);
 
-    float intensity = clamp(bass * 0.72 + energy * 0.56 + onset * 0.4, 0.0, 1.0);
-    float phase = smoothstep(0.2, 0.85, intensity);
-    float zoomFactor = mix(0.992 - (bass * 0.004), 0.976 - (bass * 0.014), phase);
-    float rotationAngle = max(0.001, mix(0.002 + (bass * 0.008), 0.010 + (bass * 0.032), phase));
+    vec2 c = uv - 0.5;
+    c.x *= u_resolution.x / u_resolution.y;
+    float radius = length(c);
 
-    vec2 feedbackUv = (uv - 0.5) * zoomFactor + 0.5;
-    feedbackUv = rotateAroundCenter(feedbackUv, rotationAngle);
-    vec2 fromCenter = feedbackUv - 0.5;
-    float radius = length(fromCenter);
-    float vortexTwist = (0.006 + bass * 0.01) * (1.0 - radius) * (0.35 + phase * 1.8);
-    feedbackUv = rotateAroundCenter(feedbackUv, vortexTwist);
-    vec2 hurricaneDrift = vec2(
-      sin(u_time * 0.43 + radius * 17.0),
-      cos(u_time * 0.39 - radius * 15.0)
-    ) * (0.0012 + phase * 0.0034) * (0.5 + intensity);
-    feedbackUv += hurricaneDrift;
+    float kickPulse = exp(-u_burstAge * 4.5) * (0.55 + bass * 0.45);
+    float ripple = sin(radius * 46.0 - u_time * (5.0 + bass * 8.0)) * kickPulse;
+    vec2 rippleOffset = normalize(c + vec2(1e-4)) * ripple * 0.013;
 
-    vec2 chromaOffset = mix(vec2(0.002, 0.0008), vec2(0.006, 0.002), phase);
-    float feedbackR = texture(u_feedback, feedbackUv + chromaOffset).r;
-    float feedbackG = texture(u_feedback, feedbackUv).g;
-    float feedbackB = texture(u_feedback, feedbackUv - chromaOffset).b;
-    vec3 feedbackSample = vec3(feedbackR, feedbackG, feedbackB);
-    vec3 twistedFresh = texture(u_liquid, feedbackUv).rgb;
-    vec3 freshVortex = mix(freshInput, twistedFresh, 0.82);
+    vec2 tunnelUv = c * zoomScale + rippleOffset;
+    float roll = u_time * (0.08 + energy * 0.08) + mids * 0.6;
+    tunnelUv = rot(roll) * tunnelUv;
 
-    float feedbackEnergy = dot(feedbackSample, vec3(0.2126, 0.7152, 0.0722));
-    float feedbackBootstrap = 1.0 - smoothstep(0.03, 0.18, feedbackEnergy);
-    float feedbackWeightBase = mix(0.72, 0.9, phase);
-    float feedbackWeight = mix(feedbackWeightBase, 0.18, feedbackBootstrap);
-    scene = feedbackSample * feedbackWeight + freshVortex * (1.0 - feedbackWeight);
-    scene = mix(scene, max(scene, freshVortex * 1.42), 0.44 + phase * 0.22);
-    scene *= 1.28 + phase * 0.32 + intensity * 0.16;
+    vec2 warp = flowNoise(tunnelUv * 1.3 + vec2(0.0, u_time * 0.26)) * (0.35 + mids * 0.7);
+    tunnelUv += warp * 0.23;
+
+    vec2 z = tunnelUv * (2.0 + energy * 0.4);
+    float accum = 0.0;
+    float density = 0.0;
+    float scaleTrack = 1.0;
+    float morph = u_time * 0.32 + mids * 2.1 + energy * 0.8;
+    for(int i=0; i<6; i++){
+      z = abs(z) / clamp(dot(z, z), 0.12, 3.4) - (0.73 + mids * 0.22 + 0.04 * float(i));
+      z += flowNoise(z * (1.2 + 0.15 * float(i)) + vec2(morph * 0.25, -morph * 0.21)) * (0.2 + 0.08 * float(i));
+      float r = length(z);
+      accum += exp(-r * (1.1 + 0.25 * float(i))) * scaleTrack;
+      density += abs(sin(z.x * 1.8) + cos(z.y * 2.4)) * 0.5 / (1.0 + float(i));
+      scaleTrack *= 0.72;
+      z = rot(0.28 + mids * 0.2 + 0.04 * float(i)) * z;
+    }
+
+    float depthBoost = smoothstep(0.0, 0.45, 1.0 - min(radius * 1.4, 1.0));
+    float tunnelMask = smoothstep(1.35, 0.04, radius);
+    float core = smoothstep(0.08, 0.0, radius) * (0.5 + bass * 0.8);
+    float detail = accum * (0.72 + depthBoost * 1.4) + density * 0.42;
+    detail *= tunnelMask;
+
+    float hueRotate = fract(u_time / 20.0);
+    float paletteIndex = detail * 0.23 + depthBoost * 0.66 + hueRotate;
+    vec3 neon = neonPalette(paletteIndex);
+
+    float highFlicker = 0.88 + highs * 0.45 * (0.5 + 0.5 * sin(u_time * 38.0 + detail * 14.0));
+    float shimmer = fbm(tunnelUv * (8.0 + highs * 9.0) + vec2(u_time * 1.9, -u_time * 1.5));
+    float edgeShimmer = pow(smoothstep(0.36, 1.2, radius), 1.8) * highs * shimmer;
+
+    vec3 deepSpace = vec3(0.004, 0.006, 0.02) * (1.0 - tunnelMask * 0.92);
+    scene = deepSpace;
+    scene += neon * detail * (1.05 + energy * 0.6) * highFlicker;
+    scene += neonPalette(paletteIndex + 0.31) * edgeShimmer * 0.8;
+    scene += neonPalette(paletteIndex + 0.12) * core * (0.6 + bass * 0.8);
+    scene = min(scene, vec3(1.2));
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
   } else {
     scene = texture(u_liquid, uv).rgb;
   }
 
-  float blackoutGain = (u_mode == 2) ? u_blackout * 0.35 : u_blackout;
+  float blackoutGain = u_blackout;
   outColor = vec4(finalize(scene, blackoutGain), 1.0);
 }`;
 
