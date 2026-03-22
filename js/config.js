@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-102-solo-event-design",
+  buildTag: "dv-101-fix-transport",
   modes: {
     names: {
       1: "Liquid Tie-Dye",

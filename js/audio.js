@@ -175,9 +175,9 @@ export class AudioEngine {
     // Speed is derived fresh from live envelope state every frame (no ratcheting).
     // Units are phase-cycles per second, guided by musical energy + onsets.
     this.motion.speed = clamp(
-      0.18 + this.smooth.bass * 0.35 + this.smooth.energy * 1.15 + this.smooth.onset * 0.9,
-      0.05,
-      3.0
+      0.06 + this.smooth.guitar * 1.8 + this.smooth.onset * 0.35 + this.smooth.bass * 0.25,
+      0.03,
+      2.4
     );
 
     // Phase accumulates for animation continuity; exposed transport is normalized phase [0..1].

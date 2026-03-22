@@ -8,7 +8,7 @@ uniform float u_dt;
 uniform float u_blackout;
 uniform int u_mode;
 uniform vec4 u_audioA; // bass, mids, highs, energy
-uniform vec4 u_audioB; // onset, peak, transport, silence
+uniform vec4 u_audioB; // onset, peak, transport, guitarDrive
 uniform sampler2D u_feedback;
 
 float sat(float x){ return clamp(x, 0.0, 1.0); }
@@ -289,7 +289,9 @@ void main(){
   float energy = u_audioA.w;
   float onset = u_audioB.x;
   float peak = u_audioB.y;
-  float transport = u_audioB.z * 220.0; // normalized phase -> legacy modulation scale
+  float guitarDrive = clamp(u_audioB.w, 0.0, 1.0);
+  float transportScale = mix(24.0, 120.0, guitarDrive);
+  float transport = u_audioB.z * transportScale;
 
   vec3 scene;
   if (u_mode == 1) {
