@@ -188,47 +188,63 @@ void main(){
   if (u_mode == 1) {
     scene = texture(u_liquid, uv).rgb;
   } else if (u_mode == 2) {
-    vec3 freshInput = texture(u_liquid, uv).rgb;
+    const float PI = 3.14159265;
+    const float N_FOLD = 5.0;
+    const int MAX_ITER = 256;
 
-    float intensity = clamp(bass * 0.72 + energy * 0.56 + onset * 0.4, 0.0, 1.0);
-    float phase = smoothstep(0.2, 0.85, intensity);
-    float zoomFactor = mix(0.992 - (bass * 0.004), 0.976 - (bass * 0.014), phase);
-    float rotationAngle = max(0.001, mix(0.002 + (bass * 0.008), 0.010 + (bass * 0.032), phase));
+    vec2 p = (uv - 0.5) * 2.5;
+    p.x *= u_resolution.x / u_resolution.y;
 
-    vec2 feedbackUv = (uv - 0.5) * zoomFactor + 0.5;
-    feedbackUv = rotateAroundCenter(feedbackUv, rotationAngle);
-    vec2 fromCenter = feedbackUv - 0.5;
-    float radius = length(fromCenter);
-    float vortexTwist = (0.006 + bass * 0.01) * (1.0 - radius) * (0.35 + phase * 1.8);
-    feedbackUv = rotateAroundCenter(feedbackUv, vortexTwist);
-    vec2 hurricaneDrift = vec2(
-      sin(u_time * 0.43 + radius * 17.0),
-      cos(u_time * 0.39 - radius * 15.0)
-    ) * (0.0012 + phase * 0.0034) * (0.5 + intensity);
-    feedbackUv += hurricaneDrift;
+    float angle = u_time * 0.02;
+    p = vec2(cos(angle) * p.x - sin(angle) * p.y,
+             sin(angle) * p.x + cos(angle) * p.y);
 
-    vec2 chromaOffset = mix(vec2(0.002, 0.0008), vec2(0.006, 0.002), phase);
-    float feedbackR = texture(u_feedback, feedbackUv + chromaOffset).r;
-    float feedbackG = texture(u_feedback, feedbackUv).g;
-    float feedbackB = texture(u_feedback, feedbackUv - chromaOffset).b;
-    vec3 feedbackSample = vec3(feedbackR, feedbackG, feedbackB);
-    vec3 twistedFresh = texture(u_liquid, feedbackUv).rgb;
-    vec3 freshVortex = mix(freshInput, twistedFresh, 0.82);
+    float r = length(p);
+    float origAngle = atan(p.y, p.x);
+    float segAngle = 2.0 * PI / N_FOLD;
+    float segPos = mod(origAngle, segAngle);
+    if (segPos < 0.0) segPos += segAngle;
 
-    float feedbackEnergy = dot(feedbackSample, vec3(0.2126, 0.7152, 0.0722));
-    float feedbackBootstrap = 1.0 - smoothstep(0.03, 0.18, feedbackEnergy);
-    float feedbackWeightBase = mix(0.72, 0.9, phase);
-    float feedbackWeight = mix(feedbackWeightBase, 0.18, feedbackBootstrap);
-    scene = feedbackSample * feedbackWeight + freshVortex * (1.0 - feedbackWeight);
-    scene = mix(scene, max(scene, freshVortex * 1.42), 0.44 + phase * 0.22);
-    scene *= 1.28 + phase * 0.32 + intensity * 0.16;
+    float sectorIndex = floor(origAngle / segAngle);
+    float mirroredAngle = (mod(sectorIndex, 2.0) == 1.0) ? (segAngle - segPos) : segPos;
+    float seamDist = min(segPos, segAngle - segPos);
+    float seamBlend = smoothstep(0.0, 0.05, seamDist);
+    float a = mix(mirroredAngle, segPos, seamBlend);
+    p = vec2(cos(a), sin(a)) * r;
+
+    vec2 z = p;
+    vec2 julia = vec2(
+      -0.4 + 0.15 * cos(u_time * 0.07),
+       0.6 + 0.10 * sin(u_time * 0.09)
+    );
+
+    float iter = 0.0;
+    for (int i = 0; i < MAX_ITER; i++) {
+      if (dot(z, z) > 4.0) break;
+      z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + julia;
+      iter += 1.0;
+    }
+
+    vec3 col = vec3(0.0);
+    if (iter < float(MAX_ITER)) {
+      float t = iter / float(MAX_ITER);
+      float hueTime = u_time * (0.08 + highs * 0.02) + mids * 0.1;
+      col = 0.5 + 0.5 * cos(6.28318 * (
+        vec3(t * 3.0, t * 3.0 + 0.33, t * 3.0 + 0.67) + hueTime
+      ));
+      col = pow(col, vec3(0.7)) * 1.5;
+      col *= 1.0 + bass * 0.5;
+      col = clamp(col, 0.0, 1.0);
+    }
+
+    scene = col;
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
   } else {
     scene = texture(u_liquid, uv).rgb;
   }
 
-  float blackoutGain = (u_mode == 2) ? u_blackout * 0.35 : u_blackout;
+  float blackoutGain = u_blackout;
   outColor = vec4(finalize(scene, blackoutGain), 1.0);
 }`;
 
