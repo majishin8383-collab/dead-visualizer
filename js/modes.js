@@ -164,6 +164,12 @@ vec3 finalize(vec3 col, float blackout){
   return max(col, 0.0);
 }
 
+vec2 rotateAroundCenter(vec2 uv, float angle){
+  vec2 centered = uv - 0.5;
+  centered = rot(angle) * centered;
+  return centered + 0.5;
+}
+
 void main(){
   vec2 uv = gl_FragCoord.xy / u_resolution;
   vec2 p = uv * 2.0 - 1.0;
@@ -182,7 +188,23 @@ void main(){
   if (u_mode == 1) {
     scene = texture(u_liquid, uv).rgb;
   } else if (u_mode == 2) {
-    scene = texture(u_liquid, uv).rgb;
+    vec3 freshInput = texture(u_liquid, uv).rgb;
+
+    float zoomFactor = 0.988 - (bass * 0.008);
+    float rotationAngle = max(0.001, 0.005 + (bass * 0.015));
+
+    vec2 feedbackUv = (uv - 0.5) * zoomFactor + 0.5;
+    feedbackUv = rotateAroundCenter(feedbackUv, rotationAngle);
+
+    vec2 chromaOffset = vec2(0.003, 0.001);
+    float feedbackR = texture(u_feedback, feedbackUv + chromaOffset).r;
+    float feedbackG = texture(u_feedback, feedbackUv).g;
+    float feedbackB = texture(u_feedback, feedbackUv - chromaOffset).b;
+    vec3 feedbackSample = vec3(feedbackR, feedbackG, feedbackB);
+
+    scene = feedbackSample * 0.88 + freshInput * 0.12;
+    scene *= 1.22;
+    scene = mix(scene, max(scene, freshInput * 1.1), 0.25);
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
   } else {

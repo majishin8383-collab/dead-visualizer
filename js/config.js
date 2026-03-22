@@ -1,9 +1,9 @@
 export const CONFIG = {
-  buildTag: "dv-111-reset-modes",
+  buildTag: "dv-113-mode2-feedback-v2",
   modes: {
     names: {
       1: "Liquid Tie-Dye",
-      2: "Liquid Tie-Dye (2)",
+      2: "Feedback Hurricane",
       3: "Liquid Tie-Dye (3)",
       4: "Liquid Tie-Dye (4)",
     },
