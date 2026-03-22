@@ -452,7 +452,8 @@ vec3 postProcess(vec2 uv, vec3 scene, float bass, float mids, float highs, float
   col *= mix(0.76, 1.0, vignette);
 
   col = toneMap(col);
-  col *= 1.0 - u_blackout;
+  float blackoutGain = (u_mode == 2) ? (1.0 - u_blackout * 0.97) : (1.0 - u_blackout);
+  col *= blackoutGain;
   col *= (0.95 + onset * 0.08);
   return col;
 }
