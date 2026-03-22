@@ -2,6 +2,8 @@ function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
+const MODE1_PALETTE_CYCLE_SECONDS = 30;
+
 function palette(t) {
   const r = 0.55 + 0.45 * Math.cos(6.28318 * (t + 0.02));
   const g = 0.52 + 0.48 * Math.cos(6.28318 * (t + 0.34));
@@ -18,17 +20,25 @@ function liquidPalette(t) {
     [255, 28, 44], // red
     [255, 102, 0], // orange
     [255, 220, 22], // yellow
-    [44, 236, 92], // occasional green
   ];
   const x = ((t % 1) + 1) % 1 * stops.length;
   const i = Math.floor(x);
   const f = x - i;
   const a = stops[i];
   const b = stops[(i + 1) % stops.length];
-  return [
+  const blended = [
     a[0] + (b[0] - a[0]) * f,
     a[1] + (b[1] - a[1]) * f,
     a[2] + (b[2] - a[2]) * f,
+  ];
+
+  // +30% saturation boost while preserving luminance.
+  const lum = blended[0] * 0.2126 + blended[1] * 0.7152 + blended[2] * 0.0722;
+  const saturationBoost = 1.3;
+  return [
+    clamp(lum + (blended[0] - lum) * saturationBoost, 0, 255),
+    clamp(lum + (blended[1] - lum) * saturationBoost, 0, 255),
+    clamp(lum + (blended[2] - lum) * saturationBoost, 0, 255),
   ];
 }
 
@@ -69,7 +79,8 @@ export class FallbackEngine {
     const ch = h / cells;
     const driftX = time * 0.04;
     const driftY = -time * 0.03;
-    const hueSpin = time * (0.026 + audio.energy * 0.032 + audio.mids * 0.02);
+    const palettePhase = time / MODE1_PALETTE_CYCLE_SECONDS;
+    const hueSpin = palettePhase + time * (audio.energy * 0.012 + audio.mids * 0.008);
     const bassWarm = clamp((audio.bass - 0.15) / 0.7, 0, 1);
 
     for (let gy = 0; gy < cells; gy++) {
