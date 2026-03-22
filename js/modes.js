@@ -42,6 +42,21 @@ float fbm(vec2 p){
   return v;
 }
 
+vec2 flowNoise(vec2 p){
+  float nx = fbm(p + vec2(19.1, -4.7));
+  float ny = fbm(p + vec2(-11.4, 23.8));
+  return vec2(nx, ny) - 0.5;
+}
+
+float curlField(vec2 p){
+  float e = 0.12;
+  float n1 = fbm(p + vec2(0.0, e));
+  float n2 = fbm(p - vec2(0.0, e));
+  float n3 = fbm(p + vec2(e, 0.0));
+  float n4 = fbm(p - vec2(e, 0.0));
+  return (n1 - n2) - (n3 - n4);
+}
+
 vec3 palette(float t){
   vec3 a = vec3(0.55, 0.45, 0.50);
   vec3 b = vec3(0.45, 0.50, 0.45);
@@ -57,27 +72,68 @@ vec3 toneMap(vec3 c){
 }
 
 vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float transport){
-  float t = u_time * (0.15 + energy * 0.45);
-  vec2 warp = vec2(
-    fbm(p * 2.5 + vec2(t, -t * 0.6)),
-    fbm(p * 2.3 + vec2(-t * 0.4, t * 0.9))
-  ) - 0.5;
-  warp += 0.24 * vec2(sin(p.y * 5.0 + t * 3.0), cos(p.x * 4.0 - t * 2.1));
-  warp *= 1.4 + bass * 1.8;
-  vec2 q = p + warp;
+  float t = u_time * (0.18 + energy * 0.34);
 
-  float fluid = fbm(q * (3.2 + mids * 4.8) + transport * 0.18);
-  float stream = sin((q.x + q.y) * 7.0 + t * 4.0 + fluid * 8.0);
-  float blobs = fbm(q * 7.0 - vec2(t * 1.6, -t * 1.2));
+  // Large-scale migration so the entire field drifts over time.
+  vec2 globalDrift = vec2(0.035, -0.028) * u_time + vec2(transport * 0.0009, -transport * 0.0007);
+  vec2 base = p * 0.86 + globalDrift;
 
-  float hue = fluid * 0.65 + stream * 0.14 + blobs * 0.35 + highs * 0.16;
-  vec3 col = palette(hue + uv.x * 0.15 + uv.y * 0.11);
-  col *= 0.65 + 1.25 * smoothstep(0.05, 0.95, blobs + stream * 0.2);
-  col *= 0.95 + onset * 0.9;
+  // Non-uniform turbulence mask creates calm and active zones.
+  float zone = smoothstep(0.28, 0.85, fbm(base * 0.55 + vec2(3.7, -1.9)));
+  float calmToTurbulent = mix(0.35, 1.35, zone);
 
-  col.r += 0.18 * bass;
-  col.g += 0.12 * highs;
-  col.b += 0.24 * mids;
+  // Audio pressure pulse from bass as expanding wavefronts.
+  vec2 bassOrigin = vec2(-0.27, 0.19);
+  float r = length(base - bassOrigin);
+  float pulse = sin(r * 11.5 - t * 9.2) * exp(-r * 1.6);
+  float bassPush = pulse * (0.09 + bass * 0.24 + onset * 0.16);
+  vec2 radial = normalize(base - bassOrigin + vec2(1e-4));
+
+  // Layered flow field: large currents + medium swirls + small shimmer.
+  vec2 flowLarge = flowNoise(base * 0.68 + vec2(t * 0.12, -t * 0.09));
+  vec2 flowMid = flowNoise(base * 1.65 + vec2(-t * 0.28, t * 0.23));
+  float curl = curlField(base * 1.1 + vec2(t * 0.17, -t * 0.15));
+  vec2 swirl = vec2(-flowMid.y, flowMid.x) * (0.9 + 0.7 * curl);
+  vec2 shimmer = flowNoise(base * 4.9 + vec2(t * 0.9, t * 0.7));
+
+  float midWarp = 1.0 + mids * 2.2;
+  vec2 field = flowLarge * 1.0 + swirl * (0.62 * midWarp) + shimmer * (0.12 + highs * 0.13);
+  field += radial * bassPush;
+  field *= calmToTurbulent;
+
+  // UV advection through the flow field: pixels travel through currents.
+  vec2 q = base;
+  q += field * (0.85 + mids * 0.45);
+  vec2 field2 = flowNoise(q * 1.12 + vec2(t * 0.18, -t * 0.2));
+  q += vec2(-field2.y, field2.x) * (0.16 + mids * 0.28) * calmToTurbulent;
+
+  // Color veins and liquid body structure.
+  float body = fbm(q * (2.1 + mids * 2.6) + vec2(0.0, transport * 0.025));
+  float veins = sin(q.x * 10.5 + q.y * 7.6 + t * 2.3 + fbm(q * 3.8) * 4.0);
+  float veinMask = smoothstep(0.2, 0.92, fbm(q * 3.2 + vec2(9.0, -5.0)));
+  float eddies = fbm(q * 5.4 - vec2(t * 0.7, -t * 0.65));
+
+  float warmCool = sin(q.x * 1.8 - q.y * 1.2 + t * 0.41 + body * 2.7);
+  vec3 cool = vec3(0.05, 0.72, 1.0);
+  vec3 warm = vec3(1.0, 0.24, 0.11);
+  vec3 col = mix(cool, warm, smoothstep(-0.8, 0.8, warmCool));
+
+  float detail = body * 0.72 + eddies * 0.34 + veins * 0.18;
+  col *= 0.62 + detail * 1.28;
+
+  // Moving color veins.
+  vec3 veinCol = mix(vec3(1.0, 0.18, 0.8), vec3(0.1, 0.82, 1.0), 0.5 + 0.5 * sin(t + q.y * 3.0));
+  col += veinCol * smoothstep(0.35, 0.95, veins * veinMask) * (0.2 + mids * 0.35);
+
+  // High-frequency edge shimmer (subtle).
+  float edge = smoothstep(0.46, 0.78, abs(fract(detail * 2.2) - 0.5) * 2.0);
+  col += vec3(0.16, 0.24, 0.34) * edge * highs * (0.08 + 0.2 * zone);
+
+  // Saturation + contrast boost without clipping.
+  float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  col = mix(vec3(luma), col, 1.35);
+  col = (col - 0.5) * (1.2 + 0.35 * mids) + 0.5;
+  col *= 0.98 + onset * 0.22;
   return max(col, 0.0);
 }
 
@@ -180,7 +236,8 @@ vec3 postProcess(vec2 uv, vec3 scene, float bass, float mids, float highs, float
   bloom /= 25.0;
 
   vec3 col = mix(scene, caCol, 0.20 + highs * 0.25);
-  col += bloom * (0.22 + energy * 0.35);
+  float bloomMix = (u_mode == 1) ? (0.12 + energy * 0.18) : (0.22 + energy * 0.35);
+  col += bloom * bloomMix;
 
   float vignette = smoothstep(1.2, 0.28, length((uv - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0)));
   col *= mix(0.76, 1.0, vignette);

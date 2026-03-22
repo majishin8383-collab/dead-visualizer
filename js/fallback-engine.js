@@ -44,19 +44,44 @@ export class FallbackEngine {
     const cells = 44;
     const cw = w / cells;
     const ch = h / cells;
+    const driftX = time * 0.04;
+    const driftY = -time * 0.03;
 
     for (let gy = 0; gy < cells; gy++) {
       for (let gx = 0; gx < cells; gx++) {
         const x = gx * cw;
         const y = gy * ch;
-        const nx = gx / cells;
-        const ny = gy / cells;
-        const flow =
-          Math.sin((nx + time * 0.13) * 9 + Math.cos((ny - time * 0.17) * 7)) +
-          Math.cos((ny + time * 0.15) * 10 + Math.sin((nx + time * 0.09) * 8));
-        const hue = nx * 0.22 + ny * 0.32 + flow * 0.08 + audio.highs * 0.18;
-        const [r, g, b] = palette(hue);
-        const a = 0.65 + audio.bass * 0.35;
+        const nx = gx / cells - 0.5;
+        const ny = gy / cells - 0.5;
+        const zone = clamp(
+          0.5 +
+            0.5 *
+              Math.sin((nx + driftX * 0.2) * 3.1 + Math.cos((ny - driftY * 0.24) * 2.8)),
+          0,
+          1
+        );
+
+        const flowX =
+          Math.sin((nx + driftX) * 4.2 + Math.cos((ny - driftY) * 2.6) * 1.9) +
+          Math.cos((ny + driftY * 0.8) * 6.1 + time * 0.7);
+        const flowY =
+          Math.cos((ny + driftY) * 4.6 + Math.sin((nx + driftX) * 2.4) * 2.1) -
+          Math.sin((nx - driftX * 0.7) * 5.2 - time * 0.63);
+        const swirl = Math.sin((nx - ny) * 8.0 + time * (1.2 + audio.mids * 2.1));
+        const bassPulse = Math.sin(Math.hypot(nx + 0.2, ny - 0.12) * 16 - time * 7.5) * audio.bass;
+
+        const advX = nx + flowX * 0.08 * (0.4 + zone + audio.mids * 0.7) + bassPulse * 0.05;
+        const advY = ny + flowY * 0.08 * (0.4 + zone + audio.mids * 0.7) + bassPulse * 0.05;
+        const vein = Math.sin(advX * 14.0 + advY * 10.0 + time * 2.3 + swirl * 1.5);
+        const warmCool = Math.sin(advX * 2.7 - advY * 1.9 + time * 0.4 + bassPulse * 2.0);
+        const hue = 0.5 + warmCool * 0.22 + vein * 0.08 + audio.highs * 0.1;
+        const [pr, pg, pb] = palette(hue);
+
+        const satBoost = 1.15 + audio.mids * 0.45;
+        const r = clamp((pr / 255) * satBoost + warmCool * 0.28 + vein * 0.12, 0, 1) * 255;
+        const g = clamp((pg / 255) * satBoost + vein * 0.04, 0, 1) * 255;
+        const b = clamp((pb / 255) * satBoost - warmCool * 0.2 + audio.highs * 0.08, 0, 1) * 255;
+        const a = 0.58 + zone * 0.24 + audio.bass * 0.2;
         ctx.fillStyle = `rgba(${r | 0},${g | 0},${b | 0},${a})`;
         ctx.fillRect(x, y, cw + 1, ch + 1);
       }
