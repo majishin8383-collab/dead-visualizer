@@ -204,25 +204,20 @@ void main(){
   } else if (u_mode == 2) {
     const int MAX_ITER = 128;
 
-    float zoomSpeed = 0.15;
-    float baseZoom = 2.5;
-    float minZoom = 0.0001;
-    float cycleDur = log(baseZoom / minZoom) / max(zoomSpeed, 0.02);
-    float cycleIndex = floor(u_time / cycleDur);
-    float cycleTime = mod(u_time, cycleDur);
-    float zoom = baseZoom * exp(-cycleTime * zoomSpeed);
-
-    vec2 centerShift = vec2(
-      hash(vec2(cycleIndex, 19.37)) - 0.5,
-      hash(vec2(41.13, cycleIndex)) - 0.5
-    ) * 0.85;
+    float zoomSpeed = 0.075;
+    float loopPhase = fract(u_time * zoomSpeed);
+    float zoom = mix(2.35, 0.32, pow(loopPhase, 1.45));
 
     vec2 z0 = (uv - 0.5) * zoom;
     z0.x *= u_resolution.x / u_resolution.y;
-    z0 += centerShift;
-
-    float angle = u_time * 0.05;
+    float angle = u_time * 0.025;
     z0 = rot(angle) * z0;
+    float sector = 6.28318 / 6.0;
+    float mandalaA = atan(z0.y, z0.x);
+    float mandalaR = length(z0);
+    mandalaA = mod(mandalaA, sector);
+    mandalaA = abs(mandalaA - sector * 0.5);
+    z0 = mandalaR * vec2(cos(mandalaA), sin(mandalaA));
 
     vec2 julia = vec2(
       0.7885 * cos(u_time * 0.1),
