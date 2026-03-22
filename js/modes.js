@@ -202,79 +202,78 @@ void main(){
   if (u_mode == 1) {
     scene = texture(u_liquid, uv).rgb;
   } else if (u_mode == 2) {
-    // Recursive mandala tunnel built in polar space.
-    // Recursion is driven by log-radius repetition (not copied/stamped motifs).
+    // dv-111: iterative fractal mandala engine in polar space.
     const float PI = 3.14159265;
+
     vec2 mp = p;
     float r = length(mp) + 1e-5;
     float a = atan(mp.y, mp.x);
 
-    float baseZoom = 0.14 + bass * 0.2 + energy * 0.08;
-    float zoomPhase = log(r + 1e-4) * (4.6 + bass * 2.2) - u_time * (0.7 + baseZoom);
-    float radialCell = fract(zoomPhase);
-    float radialTri = 1.0 - abs(radialCell * 2.0 - 1.0);
+    // Angular repetition in polar domain for mandala symmetry.
+    float folds = 10.0 + floor(mids * 6.0);
+    float foldAngle = (2.0 * PI) / folds;
+    a = abs(mod(a, foldAngle) - 0.5 * foldAngle);
+    mp = vec2(cos(a), sin(a)) * r;
 
-    float folds = 9.0 + floor(mids * 4.0);
-    float foldAngle = 2.0 * PI / folds;
-    float kalei = abs(mod(a + u_time * (0.03 + highs * 0.02), foldAngle) - foldAngle * 0.5) / (foldAngle * 0.5);
-    kalei = pow(1.0 - sat(kalei), 1.45 - mids * 0.2);
+    // Recursive zoom in fractal space; bounded looping avoids runaway speed.
+    float zoom = u_time * (0.22 + bass * 0.12 + energy * 0.05);
+    float zoomLoop = mod(zoom, 6.0) - 3.0;
+    mp *= exp(zoomLoop);
 
-    float bloomPulse = exp(-u_burstAge * 3.4) * u_hardTransient;
-    float recurDepthBoost = bloomPulse * 1.1 + onset * 0.45;
+    float burst = exp(-u_burstAge * 3.2) * u_hardTransient;
+    float distortAmt = 0.08 + mids * 0.22 + burst * 0.2;
+    vec2 q = mp + flowNoise(mp * (1.8 + highs * 1.4) + vec2(0.0, u_time * 0.1)) * distortAmt;
 
-    vec2 rp = vec2(zoomPhase * 0.42, a * (2.0 + mids * 0.9) / PI);
-    float detail = 0.0;
-    float amp = 0.55;
-    vec2 iter = rp;
-    for (int i = 0; i < 6; i++) {
-      float layerDrift = u_time * (0.08 + float(i) * 0.03);
-      vec2 warp = vec2(
-        sin(iter.y * (2.2 + float(i) * 0.45) + layerDrift),
-        cos(iter.x * (2.5 + float(i) * 0.38) - layerDrift)
-      );
-      iter = iter * (1.47 + 0.07 * mids) + warp * (0.55 + highs * 0.25);
-      float s = sin(iter.x + cos(iter.y));
-      float c = cos(iter.y - sin(iter.x));
-      detail += amp * (0.5 + 0.5 * s * c);
-      amp *= 0.56;
+    float trapMin = 1e4;
+    float trapAccum = 0.0;
+    float petals = 0.0;
+    float depthMix = 3.5 + bass * 2.0 + burst * 1.5;
+
+    // REQUIRED recursive fractal construction loop.
+    for (int i = 0; i < 8; i++) {
+      float fi = float(i);
+      float active = step(fi, depthMix + 2.0);
+      vec2 wobble = vec2(
+        sin(u_time * (0.18 + fi * 0.03) + q.y * (1.5 + fi * 0.2)),
+        cos(u_time * (0.16 + fi * 0.04) - q.x * (1.7 + fi * 0.18))
+      ) * (0.04 + highs * 0.07);
+
+      q = abs(q + wobble);
+      float invDen = max(dot(q, q), 0.06 + 0.03 * bass);
+      q = q / invDen - vec2(0.72 + mids * 0.2, 0.66 + bass * 0.16);
+      q *= rot(0.14 + fi * (0.05 + mids * 0.02));
+
+      float l = length(q);
+      trapMin = min(trapMin, l);
+      trapAccum += active * exp(-l * (1.4 + fi * 0.24));
+      petals += active * exp(-abs(q.x * q.y) * (6.0 + fi * 0.8));
     }
 
-    float centerRegrow = exp(-r * (9.0 - bass * 2.8));
-    float ringBands = smoothstep(0.22, 0.92, radialTri + detail * 0.26 + recurDepthBoost * 0.2);
-    float petalShape = pow(sat(kalei * (0.65 + ringBands * 0.65)), 1.1 - mids * 0.25);
+    float d = length(q);
+    float structure = sat(trapAccum * 0.95 + petals * 0.2);
+    float centerRegen = exp(-length(mp) * (7.5 - bass * 2.2));
 
-    float outerStructure = smoothstep(0.08, 0.96, fract(zoomPhase * 0.5 + detail * 0.33 + r * 0.8));
-    float fineShimmer = smoothstep(0.68, 1.0, sin(zoomPhase * 18.0 + detail * 8.0 + a * 14.0 + u_time * 1.4));
-    fineShimmer *= highs * 0.5 + bloomPulse * 0.5;
+    // Structural color from fractal output (not flat gradients / ring masks).
+    float hueDrift = u_time * (0.22 + highs * 0.12) + burst * 1.1;
+    vec3 col = vec3(
+      sin(d * 3.2 + trapAccum * 1.8 + hueDrift),
+      sin(d * 2.4 + petals * 1.2 + 2.0 + hueDrift * 0.9),
+      sin(d * 4.1 + trapMin * 6.0 + 4.0 + hueDrift * 1.1)
+    ) * 0.5 + 0.5;
 
-    float mandalaMask = sat(petalShape * (0.65 + ringBands * 0.7) + outerStructure * 0.45);
-    mandalaMask *= 0.88 + 0.16 * exp(-r * 0.9);
+    vec3 warm = vec3(1.00, 0.35, 0.08);
+    vec3 cool = vec3(0.05, 0.88, 1.00);
+    vec3 violet = vec3(0.75, 0.15, 1.00);
 
-    float hueBase = zoomPhase * 0.07 + detail * 0.25 + u_time * (0.03 + highs * 0.035);
-    vec3 magenta = vec3(0.95, 0.12, 0.86);
-    vec3 violet = vec3(0.45, 0.14, 1.00);
-    vec3 cyan = vec3(0.06, 0.88, 1.00);
-    vec3 blue = vec3(0.10, 0.30, 1.00);
-    vec3 orange = vec3(1.00, 0.34, 0.08);
-    vec3 yellow = vec3(0.98, 0.82, 0.20);
+    col = mix(col, mix(violet, cool, sat(structure)), 0.55);
+    col = mix(col, warm, sat(0.25 + burst * 0.55 + onset * 0.25) * sat(petals));
 
-    vec3 cool = mix(violet, cyan, sat(0.5 + 0.5 * sin(hueBase + radialTri * 3.2)));
-    vec3 warm = mix(magenta, orange, sat(0.5 + 0.5 * cos(hueBase * 1.2 - detail * 0.9)));
-    vec3 accent = mix(blue, yellow, sat(0.5 + 0.5 * sin(hueBase * 1.9 + a * 2.0)));
+    float edge = sat(structure * 0.8 + centerRegen * 0.45);
+    col *= 0.35 + edge * 1.25;
+    col += centerRegen * mix(violet, cool, 0.5 + 0.5 * sin(u_time * 0.6 + trapAccum * 1.4));
 
-    float warmCoolMix = sat(0.5 + 0.5 * sin(zoomPhase * 0.8 - r * 2.3 + mids * 0.8));
-    vec3 col = mix(cool, warm, warmCoolMix);
-    col = mix(col, accent, 0.35 * ringBands + fineShimmer * 0.25);
-
-    col *= 0.55 + mandalaMask * 0.95;
-    col += centerRegrow * mix(magenta, cyan, 0.5 + 0.5 * sin(u_time * 0.7 + detail * 3.0)) * (0.9 + recurDepthBoost);
-    col += fineShimmer * vec3(0.35, 0.45, 0.85);
-
-    float edgeEnergy = smoothstep(0.2, 0.95, mandalaMask) * (0.35 + highs * 0.55);
-    col += edgeEnergy * vec3(0.16, 0.20, 0.35);
-
-    // Highlight compression keeps saturation/contrast while preventing white washout.
-    col = col / (1.0 + max(col.r, max(col.g, col.b)) * 0.9);
+    // Compression prevents white clipping while preserving saturated detail.
+    col = col / (1.0 + max(col.r, max(col.g, col.b)) * 0.95);
     scene = max(col, 0.0);
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
