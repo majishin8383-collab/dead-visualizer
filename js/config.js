@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-101A",
+  buildTag: "dv-101B",
   modes: {
     names: {
       1: "Liquid Tie-Dye",
