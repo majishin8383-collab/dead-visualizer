@@ -20,16 +20,14 @@ export class Renderer {
     this.running = false;
     this.crashed = false;
 
+    this.usingFallback = false;
+
     try {
       this.visual = new VisualEngine(canvas);
       this.engineName = "WebGL2";
     } catch (err) {
       console.error("WebGL2 visual engine failed to initialize, using Canvas fallback.", err);
-      this.visual = new FallbackEngine(canvas);
-      this.engineName = "Canvas Fallback";
-      if (this.hudRefs?.transportLabel) {
-        this.hudRefs.transportLabel.textContent = "fallback";
-      }
+      this.activateFallback("init");
     }
 
     window.addEventListener("resize", () => this.resize());
@@ -45,6 +43,20 @@ export class Renderer {
     this.mode = mode;
     this.visual.setMode?.(mode);
     this.updateHudMode();
+  }
+
+  activateFallback(reason = "runtime") {
+    const fallback = new FallbackEngine(this.canvas);
+    this.visual = fallback;
+    this.usingFallback = true;
+    this.engineName = fallback.ready ? "Canvas Fallback" : "Renderer Unavailable";
+    this.updateHudMode();
+    if (this.hudRefs?.transportLabel) {
+      this.hudRefs.transportLabel.textContent = fallback.ready ? "fallback" : "renderer-unavailable";
+    }
+    if (!fallback.ready) {
+      console.error(`Fallback activation (${reason}) failed: 2D context unavailable.`);
+    }
   }
 
   toggleAutoMode() {
@@ -98,8 +110,17 @@ export class Renderer {
       this.crashed = false;
     } catch (err) {
       if (!this.crashed) {
-        console.error("Visualizer recovered into fallback frame.", err);
+        console.error("Visualizer render failed; activating fallback.", err);
       }
+      if (!this.usingFallback) {
+        this.activateFallback("runtime");
+      }
+      this.visual.render?.({
+        mode: this.mode,
+        time: this.masterTime,
+        blackout: Math.min(1, blackout.fade),
+        audio,
+      });
       this.crashed = true;
     }
 

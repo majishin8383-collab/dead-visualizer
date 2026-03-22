@@ -46,6 +46,10 @@ export class FallbackEngine {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d", { alpha: false });
+    this.ready = !!this.ctx;
+    if (!this.ready) {
+      console.error("Canvas fallback unavailable: unable to acquire 2D context.");
+    }
   }
 
   resize(width, height) {
@@ -55,6 +59,9 @@ export class FallbackEngine {
 
   render({ mode, time, audio, blackout }) {
     const { ctx } = this;
+    if (!ctx) {
+      return false;
+    }
     const w = this.canvas.width;
     const h = this.canvas.height;
 
@@ -71,6 +78,7 @@ export class FallbackEngine {
       ctx.fillStyle = `rgba(0,0,0,${clamp(blackout, 0, 1)})`;
       ctx.fillRect(0, 0, w, h);
     }
+    return true;
   }
 
   renderLiquid(ctx, w, h, time, audio) {
