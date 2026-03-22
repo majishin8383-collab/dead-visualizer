@@ -206,7 +206,8 @@ void main(){
     const float N_FOLD = 5.0;
     const float BLOOM_SPACING = 6.0;
     const float BLOOM_START_SCALE = 0.3;
-    const float BLOOM_MAX_SCALE = 4.0;
+    const float BLOOM_FADE_START_SCALE = 6.0;
+    const float BLOOM_MAX_SCALE = 8.0;
     const float BLOOM_GROWTH_PER_SEC = 1.5; // 0.025/frame at ~60fps
     const int MAX_ITER = 256;
     const int EXTRA_ITER = 64;
@@ -228,7 +229,9 @@ void main(){
       if (scale > BLOOM_MAX_SCALE) continue;
       vec2 p = p0 / scale;
       p *= 1.4;
-      float opacity = 1.0;
+      float opacity = (scale <= BLOOM_FADE_START_SCALE)
+        ? 1.0
+        : 1.0 - smoothstep(BLOOM_FADE_START_SCALE, BLOOM_MAX_SCALE, scale);
 
       float r = length(p);
       float a = atan(p.y, p.x);
