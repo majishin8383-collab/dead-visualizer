@@ -72,7 +72,7 @@ export class Renderer {
     this.masterTime += dt;
 
     const audio = this.audioEngine.update();
-    const events = this.eventsEngine.update();
+    const events = this.eventsEngine.update(audio, dt);
 
     if (this.autoMode) {
       this.autoSwitchTimer += dt * (0.55 + audio.energy * 0.7 + audio.onset * 0.6);
@@ -92,6 +92,7 @@ export class Renderer {
         dt,
         blackout: Math.min(1, blackout.fade),
         audio,
+        events,
       });
       this.crashed = false;
     } catch (err) {
