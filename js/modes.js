@@ -207,8 +207,8 @@ void main(){
     const float BLOOM_SPACING = 8.0;
     const float BLOOM_DURATION = 12.0;
     const float BLOOM_FADE = 2.0;
-    const int BASE_ITER = 96;
-    const int MAX_ITER_CAP = 108;
+    const int BASE_ITER = 192;
+    const int MAX_ITER_CAP = 204;
 
     vec2 p0 = (uv - 0.5) * 2.0;
     p0.x *= u_resolution.x / u_resolution.y;
@@ -219,6 +219,7 @@ void main(){
     maxIter = clamp(maxIter, BASE_ITER, MAX_ITER_CAP);
 
     vec3 accum = vec3(0.0);
+    float weightSum = 0.0;
     for (int layer = 0; layer < 3; layer++) {
       float birth = (layerAnchor - float(layer)) * BLOOM_SPACING;
       float age = u_time - birth;
@@ -236,36 +237,41 @@ void main(){
       float r = length(p);
       float a = atan(p.y, p.x);
       float sector = 2.0 * PI / N_FOLD;
-      a = mod(a, sector) - 0.5 * sector;
+      a = mod(a + 0.5 * sector, sector) - 0.5 * sector;
       p = vec2(cos(a), sin(a)) * r;
+      p *= 1.8;
 
       vec2 z = p;
       vec2 julia = vec2(
-        0.7885 * cos(u_time * 0.07),
-        0.7885 * sin(u_time * 0.09)
+        -0.4 + 0.15 * cos(u_time * 0.07),
+         0.6 + 0.1  * sin(u_time * 0.09)
       );
 
       float iter = 0.0;
+      float trap = 10.0;
+      float filament = 0.0;
       for (int i = 0; i < MAX_ITER_CAP; i++) {
         if (i >= maxIter) break;
         if (dot(z, z) > 4.0) break;
         z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + julia;
+        trap = min(trap, length(z + vec2(0.18, -0.26)));
+        filament += exp(-7.0 * abs(z.x * z.y)) * 0.018;
         iter += 1.0;
       }
 
       float z2 = max(dot(z, z), 1.0001);
       float smoothIter = iter - log2(log2(z2)) + 4.0;
-      float t = clamp(smoothIter / float(maxIter), 0.0, 1.0);
-      float hue = t + u_time * 0.08 + mids * 0.15;
+      float t = smoothIter / float(maxIter);
+      vec3 col = 0.5 + 0.5 * cos(6.28318 * (
+        vec3(t * 3.0, t * 3.0 + 0.33, t * 3.0 + 0.67) + u_time * 0.08 + mids * 0.15
+      ));
+      if (iter >= float(maxIter)) col = vec3(0.0);
+      col = pow(col, vec3(0.7));
+      col *= 1.5;
+      col = clamp(col, 0.0, 1.0);
 
-      vec3 col = 0.5 + 0.5 * cos(6.28318 * (hue + vec3(0.0, 0.33, 0.67)));
-      col = pow(col, vec3(0.78));
-      col *= 1.22;
-
-      float inside = smoothstep(float(maxIter) - 1.0, float(maxIter), iter);
-      col = mix(col, vec3(0.0012, 0.0018, 0.007), inside);
-
-      float boundary = smoothstep(0.08, 0.95, t) * (1.0 - inside);
+      float trapEdge = exp(-trap * 6.5);
+      float boundary = clamp((trapEdge * 1.4 + filament * 0.9 + t * 0.2) * (1.0 - step(float(maxIter) - 0.5, iter)), 0.0, 1.0);
       col *= 1.0 + bass * 0.6 * boundary;
 
       float shimmer = (0.5 + 0.5 * sin(u_time * 30.0 + smoothIter * 0.21)) * highs;
@@ -276,9 +282,11 @@ void main(){
       }
 
       accum += col * opacity;
+      weightSum += opacity;
     }
 
-    scene = vec3(0.0007, 0.0012, 0.0048) + accum * (0.8 + 0.3 * energy);
+    vec3 layerCol = (weightSum > 0.001) ? (accum / weightSum) : vec3(0.0);
+    scene = layerCol * (0.95 + 0.25 * energy);
     scene = min(scene, vec3(1.2));
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
