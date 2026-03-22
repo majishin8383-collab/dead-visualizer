@@ -126,7 +126,7 @@ export class AudioEngine {
         guitar: 0,
         air: 0,
         energy: 0,
-        transport: 0,
+        transport: 160,
         onset: 0,
         peak: 0,
         silence: 1,
