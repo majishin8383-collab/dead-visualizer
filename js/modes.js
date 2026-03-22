@@ -204,7 +204,7 @@ void main(){
   } else if (u_mode == 2) {
     const int MAX_ITER = 128;
 
-    float zoomSpeed = 0.15 + bass * 0.2;
+    float zoomSpeed = 0.15;
     float baseZoom = 2.5;
     float minZoom = 0.0001;
     float cycleDur = log(baseZoom / minZoom) / max(zoomSpeed, 0.02);
