@@ -13,6 +13,7 @@ const silenceLabel = document.getElementById("silenceLabel");
 const fsButton = document.getElementById("fsButton");
 const micButton = document.getElementById("micButton");
 const hud = document.getElementById("hud");
+const warmupStatus = document.getElementById("warmupStatus");
 
 const audioEngine = new AudioEngine();
 const eventsEngine = new EventsEngine();
@@ -32,6 +33,8 @@ function enterFullscreen() {
 }
 
 async function boot() {
+  startScreen.style.display = "none";
+
   try {
     await audioEngine.start();
     audioLabel.textContent = "Live input connected";
@@ -39,10 +42,14 @@ async function boot() {
     console.error(err);
     audioLabel.textContent = "Audio permission failed";
   }
-
-  startScreen.style.display = "none";
-  renderer.start();
 }
+
+renderer.start();
+requestAnimationFrame(() => {
+  if (!warmupStatus) return;
+  warmupStatus.textContent = "warm and ready";
+  warmupStatus.classList.add("ready");
+});
 
 startButton.addEventListener("click", boot);
 fsButton.addEventListener("click", enterFullscreen);

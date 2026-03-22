@@ -11,6 +11,13 @@ function followEnvelope(current, target, attackHz, releaseHz, dt) {
   return current + (target - current) * alpha;
 }
 
+function followEnergyEnvelope(current, target, attack = 0.05, decay = 0.85) {
+  if (target > current) {
+    return clamp(current + (target - current) * attack, 0, 1);
+  }
+  return clamp(current * decay + target * (1 - decay), 0, 1);
+}
+
 export class AudioEngine {
   constructor() {
     this.ctx = null;
@@ -140,22 +147,18 @@ export class AudioEngine {
     this.analyser.getByteFrequencyData(this.freqData);
     this.analyser.getByteTimeDomainData(this.timeData);
 
-    this.raw.bass = clamp(this.averageRange(28, 130), 0, 1);
+    this.raw.bass = clamp(this.averageRange(28, 200), 0, 1);
     this.raw.lowMid = clamp(this.averageRange(130, 350), 0, 1);
-    this.raw.mids = clamp(this.averageRange(350, 2200), 0, 1);
-    this.raw.highs = clamp(this.averageRange(2200, 9000), 0, 1);
+    this.raw.mids = clamp(this.averageRange(200, 2000), 0, 1);
+    this.raw.highs = clamp(this.averageRange(2000, 9000), 0, 1);
     this.raw.air = clamp(this.averageRange(9000, 15000), 0, 1);
     this.raw.guitar = clamp(this.averageRange(600, 3200), 0, 1);
 
     const rms = this.computeRms();
-    this.raw.energy = clamp(
-      0.36 * this.raw.bass + 0.3 * this.raw.mids + 0.2 * this.raw.highs + 0.14 * rms * 2.2,
-      0,
-      1
-    );
+    this.raw.energy = clamp(0.5 * this.raw.bass + 0.35 * this.raw.mids + 0.15 * rms * 2.2, 0, 1);
 
     const flux = Math.max(0, this.raw.energy - this.lastEnergy);
-    this.raw.onset = clamp(flux * 6.5 + Math.max(0, (this.raw.highs - this.smooth.highs) * 2.8), 0, 1);
+    this.raw.onset = clamp(flux * 6.5, 0, 1);
     this.raw.peak = clamp(this.raw.onset * 0.7 + flux * 2.4, 0, 1);
     this.raw.silence = clamp(1 - this.raw.energy * 1.55, 0, 1);
     this.lastEnergy = this.raw.energy;
@@ -167,18 +170,17 @@ export class AudioEngine {
     this.smooth.highs = followEnvelope(this.smooth.highs, this.raw.highs, 16, 7, dt);
     this.smooth.air = followEnvelope(this.smooth.air, this.raw.air, 18, 8, dt);
     this.smooth.guitar = followEnvelope(this.smooth.guitar, this.raw.guitar, 14, 6, dt);
-    this.smooth.energy = followEnvelope(this.smooth.energy, this.raw.energy, 16, 3.2, dt);
+    this.smooth.energy = followEnergyEnvelope(this.smooth.energy, this.raw.energy, 0.05, 0.85);
     this.smooth.onset = followEnvelope(this.smooth.onset, this.raw.onset, 34, 6, dt);
     this.smooth.peak = followEnvelope(this.smooth.peak, this.raw.peak, 42, 2.8, dt);
     this.smooth.silence = followEnvelope(this.smooth.silence, this.raw.silence, 10, 3.5, dt);
 
     // Speed is derived fresh from live envelope state every frame (no ratcheting).
     // Units are phase-cycles per second, guided by musical energy + onsets.
-    this.motion.speed = clamp(
-      0.06 + this.smooth.guitar * 1.8 + this.smooth.onset * 0.35 + this.smooth.bass * 0.25,
-      0.03,
-      2.4
-    );
+    const highsMotionInfluence = Math.min(this.smooth.highs * 0.1, 0.15);
+    this.motion.speed =
+      clamp(0.03 + this.smooth.bass * 0.75 + this.smooth.mids * 0.2 + this.smooth.onset * 0.12 + highsMotionInfluence, 0.02, 1.8) *
+      0.4;
 
     // Phase accumulates for animation continuity; exposed transport is normalized phase [0..1].
     this.transportPhase = (this.transportPhase + this.motion.speed * dt) % 1;

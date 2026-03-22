@@ -3,8 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dead Visualizer dv-101-fix-transport</title>
-  <link rel="stylesheet" href="./css/styles.css?v=101fix" />
+  <title>Dead Visualizer dv-105-launch-screen</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rye&family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/styles.css?v=105launch" />
 </head>
 <body>
   <div id="app">
@@ -13,11 +16,27 @@
 
   <div id="startScreen">
     <div id="startCard">
-      <h1>Dead Visualizer — dv-101-fix-transport</h1>
-      <p>Professional full-screen psychedelic concert visual engine (WebGL2 primary with Canvas fallback).</p>
-      <p>Modes: 1 = Liquid Tie-Dye, 2 = Feedback Tunnel, 3 = Fractal Bloom, 4 = Chaos</p>
-      <p>F = Fullscreen | H = Hide HUD | A = Auto Cycle | Space = Blackout Hit</p>
-      <button id="startButton">Start Audio + Visuals</button>
+      <h1 id="posterTitle">DEAD VISUALIZER</h1>
+      <p id="posterSubtitle">Professional Psychedelic Concert Visual Engine</p>
+
+      <div id="setlist">
+        <h2>TONIGHT'S SETS</h2>
+        <ol>
+          <li>Liquid Tie-Dye</li>
+          <li>Liquid Feedback Swirl</li>
+          <li>Liquid Kaleido</li>
+          <li>Peak Show State</li>
+        </ol>
+      </div>
+
+      <div id="houseControls">
+        <h3>HOUSE CONTROLS</h3>
+        <p>F = Fullscreen · H = Hide HUD · A = Auto Cycle · Space = Blackout Hit</p>
+      </div>
+
+      <div id="warmupStatus" aria-live="polite">warming up...</div>
+      <button id="startButton">LAUNCH THE SHOW</button>
+      <p id="versionTag">dv-104-envelope-fix</p>
     </div>
   </div>
 
@@ -34,6 +53,6 @@
     </div>
   </div>
 
-  <script type="module" src="./js/main.js?v=101fix"></script>
+  <script type="module" src="./js/main.js?v=105launch"></script>
 </body>
 </html>
