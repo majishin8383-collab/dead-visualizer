@@ -203,6 +203,8 @@ void main(){
     vec3 feedbackSample = vec3(feedbackR, feedbackG, feedbackB);
 
     scene = feedbackSample * 0.88 + freshInput * 0.12;
+    scene *= 1.22;
+    scene = mix(scene, max(scene, freshInput * 1.1), 0.25);
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
   } else {
