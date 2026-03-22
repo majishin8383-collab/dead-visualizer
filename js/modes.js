@@ -170,6 +170,20 @@ vec2 rotateAroundCenter(vec2 uv, float angle){
   return centered + 0.5;
 }
 
+vec3 neonPalette(float t){
+  vec3 cyan = vec3(0.05, 0.92, 1.00);
+  vec3 magenta = vec3(0.96, 0.10, 0.94);
+  vec3 green = vec3(0.22, 1.00, 0.34);
+  vec3 purple = vec3(0.50, 0.15, 1.00);
+  vec3 orange = vec3(1.00, 0.42, 0.04);
+  float x = fract(t) * 5.0;
+  float i = floor(x);
+  float f = fract(x);
+  vec3 a = (i < 0.5) ? cyan : (i < 1.5) ? magenta : (i < 2.5) ? green : (i < 3.5) ? purple : orange;
+  vec3 b = (i < 0.5) ? magenta : (i < 1.5) ? green : (i < 2.5) ? purple : (i < 3.5) ? orange : cyan;
+  return mix(a, b, f);
+}
+
 void main(){
   vec2 uv = gl_FragCoord.xy / u_resolution;
   vec2 p = uv * 2.0 - 1.0;
