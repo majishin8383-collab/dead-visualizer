@@ -87,6 +87,7 @@ export class VisualEngine {
     this.energyHistory = [];
     this.burstAge = 10;
     this.hardTransientFrames = 0;
+    this.activeMode = 1;
 
     this.resize(canvas.width || window.innerWidth, canvas.height || window.innerHeight);
   }
@@ -115,6 +116,24 @@ export class VisualEngine {
     const temp = this.targets.ping;
     this.targets.ping = this.targets.pong;
     this.targets.pong = temp;
+  }
+
+  clearFeedbackBuffers() {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.targets.ping.fbo);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.targets.pong.fbo);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  setMode(mode) {
+    const previousMode = this.activeMode;
+    this.activeMode = mode;
+    if (previousMode === 2 && mode !== 2) {
+      this.clearFeedbackBuffers();
+    }
   }
 
 
