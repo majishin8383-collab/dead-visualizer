@@ -254,7 +254,7 @@ void main(){
     baseCol = pow(baseCol, vec3(0.8));
     baseCol *= 1.4;
 
-    float insideMask = 1.0 - smoothstep(float(MAX_ITER) - 1.0, float(MAX_ITER), iter);
+    float insideMask = smoothstep(float(MAX_ITER) - 1.0, float(MAX_ITER), iter);
     vec3 deepBlack = vec3(0.003, 0.004, 0.012);
     vec3 col = mix(baseCol, deepBlack, insideMask);
 
