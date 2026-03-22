@@ -167,83 +167,166 @@ vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float ener
   return max(col, 0.0);
 }
 
+vec2 mirrorWrap(vec2 uv){
+  return abs(fract(uv) * 2.0 - 1.0);
+}
+
+vec3 neonSwirlPalette(float t){
+  vec3 c0 = vec3(0.00, 1.00, 1.00); // cyan
+  vec3 c1 = vec3(1.00, 0.10, 0.95); // magenta
+  vec3 c2 = vec3(1.00, 0.95, 0.05); // yellow
+  vec3 c3 = vec3(1.00, 0.10, 0.20); // red
+  vec3 c4 = vec3(0.10, 1.00, 0.28); // green
+
+  float x = fract(t) * 5.0;
+  float i = floor(x);
+  float f = fract(x);
+  vec3 a = (i < 0.5) ? c0 : (i < 1.5) ? c1 : (i < 2.5) ? c2 : (i < 3.5) ? c3 : c4;
+  float ni = mod(i + 1.0, 5.0);
+  vec3 b = (ni < 0.5) ? c0 : (ni < 1.5) ? c1 : (ni < 2.5) ? c2 : (ni < 3.5) ? c3 : c4;
+  return mix(a, b, f);
+}
+
+vec3 feedbackSwirl(vec2 uv, float bass, float mids, float highs, float energy, float onset, float zoomBoost, float spinBoost){
+  float spin = mix(0.003, 0.008, sat(bass * 0.95 + energy * 0.4 + onset * 0.5)) + spinBoost;
+  float zoom = mix(0.995, 0.98, sat(energy * 0.8 + bass * 0.55)) - zoomBoost;
+
+  vec2 center = vec2(
+    0.5 + 0.12 * sin(u_time * 0.11) + 0.06 * sin(u_time * 0.043),
+    0.5 + 0.10 * cos(u_time * 0.09) + 0.05 * cos(u_time * 0.051)
+  );
+
+  vec2 q = uv - center;
+  q = rot(spin) * q;
+  q /= max(zoom, 0.90);
+  q += vec2(sin(u_time * 0.61), cos(u_time * 0.54)) * (0.002 + bass * 0.004);
+
+  vec2 baseUv = mirrorWrap(q + center);
+  float ca = 0.0015 + highs * 0.008;
+  vec2 axis = vec2(cos(u_time * 0.6), sin(u_time * 0.6)) * ca;
+
+  vec3 fb;
+  fb.r = texture(u_feedback, mirrorWrap(baseUv + axis)).r;
+  fb.g = texture(u_feedback, baseUv).g;
+  fb.b = texture(u_feedback, mirrorWrap(baseUv - axis)).b;
+
+  float grainA = noise(baseUv * u_resolution * 0.63 + u_time * 15.7);
+  float grainB = noise((baseUv.yx + 0.13) * u_resolution * 0.81 - u_time * 12.9);
+  float grain = (grainA + grainB - 1.0) * (0.08 + highs * 0.07 + energy * 0.05);
+
+  vec2 warpUv = baseUv + flowNoise((baseUv - 0.5) * 3.6 + vec2(u_time * 0.43, -u_time * 0.39)) * (0.018 + mids * 0.035);
+  vec3 src = modeLiquid(warpUv, (warpUv * 2.0 - 1.0) * vec2(u_resolution.x / u_resolution.y, 1.0), bass, mids, highs, energy, onset, u_audioB.z * 120.0);
+
+  float hueField = fbm((baseUv - 0.5) * 6.5 + vec2(-u_time * 0.21, u_time * 0.25));
+  vec3 neon = neonSwirlPalette(hueField + u_time * 0.07 + mids * 0.25);
+
+  vec3 col = mix(src, fb, 0.58 + energy * 0.3);
+  col = mix(col, col * neon, 0.46 + highs * 0.22);
+  col += neon * (0.08 + onset * 0.16);
+  col += grain;
+  col *= 1.02 + energy * 0.2;
+  return max(col, 0.0);
+}
+
 vec3 modeTunnel(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float peak, float transport){
-  vec2 tp = p;
-  float t = u_time * 0.45 + transport * 0.06;
-  float r = length(tp);
-  float a = atan(tp.y, tp.x);
+  vec3 col = feedbackSwirl(uv, bass, mids, highs, energy, onset, 0.0, 0.0);
 
-  tp *= rot(0.45 * sin(t * 0.6) + mids * 0.35);
-  float radial = 1.0 / max(r, 0.08 + bass * 0.03);
-  float tunnel = sin(radial * (8.0 + bass * 18.0) - t * 5.0 + a * 3.0);
-  float vort = sin(a * (7.0 + mids * 14.0) + t * 2.4 + tunnel * 2.0);
-  float depth = fbm(vec2(radial * 0.75, a * 1.5 + t));
+  vec2 flowUv = uv + flowNoise(p * 2.7 + vec2(u_time * 0.3, -u_time * 0.35)) * (0.01 + mids * 0.02);
+  vec3 src = modeLiquid(flowUv, p, bass, mids, highs, energy, onset, transport);
+  col = mix(src, col, 0.72 + energy * 0.18);
 
-  vec2 feedbackUv = uv;
-  float zoom = 1.012 + bass * 0.03 + onset * 0.02;
-  feedbackUv = (feedbackUv - 0.5) / zoom + 0.5;
-  feedbackUv = (rot(0.003 + mids * 0.022) * (feedbackUv - 0.5)) + 0.5;
-  feedbackUv += vec2(sin(t * 0.7), cos(t * 0.6)) * 0.0025 * (1.0 + bass * 2.0);
-  vec3 fb = texture(u_feedback, feedbackUv).rgb;
-
-  float hue = depth * 0.7 + vort * 0.17 + tunnel * 0.22;
-  vec3 col = palette(hue + r * 0.32 + highs * 0.16);
-  col *= 0.45 + 0.95 * smoothstep(-0.8, 0.9, tunnel + depth);
-  col += fb * (0.58 + energy * 0.22);
-  col *= 1.0 - smoothstep(0.82, 1.3, r) * 0.18;
-  col += (0.22 + peak * 0.55) * vec3(1.0, 0.25, 0.62) * smoothstep(0.87, 1.0, onset);
+  float chaos = fbm(p * 9.0 + vec2(u_time * 0.9, -u_time * 0.8));
+  col += (chaos - 0.5) * (0.12 + highs * 0.07);
+  col += neonSwirlPalette(chaos + u_time * 0.13) * (0.06 + peak * 0.08);
 
   return max(col, 0.0);
 }
 
+vec2 kaleidoUv(vec2 uv, vec2 center, float segments, float angle){
+  vec2 p = uv - center;
+  float r = length(p);
+  float a = atan(p.y, p.x) + angle;
+  float sector = 6.28318530718 / segments;
+  a = mod(a, sector);
+  a = abs(a - sector * 0.5);
+  vec2 kp = vec2(cos(a), sin(a)) * r;
+  return kp + center;
+}
+
 vec3 modeFractal(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float peak, float transport){
-  vec2 z = p * (1.5 + bass * 0.8);
-  vec2 c = vec2(sin(u_time * 0.17), cos(u_time * 0.21)) * (0.28 + mids * 0.28);
-  float iter = 0.0;
-  float minTrap = 10.0;
+  float segMix = step(0.5, fract(transport * 1.7 + u_time * 0.05));
+  float segments = mix(6.0, 8.0, segMix);
 
-  for(int i=0;i<34;i++){
-    z = abs(z);
-    z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
-    z *= rot(0.025 + 0.11 * sin(u_time * 0.2 + float(i) * 0.13 + mids));
-    float m = dot(z, z);
-    minTrap = min(minTrap, abs(z.x) + abs(z.y));
-    if(m > 16.0) break;
-    iter += 1.0;
-  }
+  vec2 drift = vec2(
+    0.09 * sin(u_time * 0.13 + bass * 1.7),
+    0.08 * cos(u_time * 0.11 + mids * 1.9)
+  );
+  vec2 center = vec2(0.5) + drift;
 
-  float normIter = iter / 34.0;
-  float bloom = exp(-4.0 * minTrap) * (1.2 + highs * 0.8);
-  float petals = sin(atan(p.y, p.x) * (6.0 + mids * 8.0) + transport * 0.1 + bloom * 3.0);
+  float pulse = 1.0 + (bass * 0.06 + peak * 0.1) * sin(u_time * 6.283 + transport * 6.283);
+  vec2 zuv = (uv - center) / pulse + center;
+  float angle = u_time * (0.07 + mids * 0.4) + transport * 1.6;
+  vec2 kuv = kaleidoUv(zuv, center, segments, angle);
 
-  vec3 col = palette(normIter * 0.6 + petals * 0.08 + bloom * 0.2);
-  col *= 0.45 + normIter * 1.25 + bloom * 1.4;
-  col += vec3(0.35, 0.05, 0.42) * smoothstep(0.55, 1.0, bloom) * (0.7 + peak);
-  col *= 0.95 + onset * 0.55;
-  return col;
+  vec2 kpn = (kuv * 2.0 - 1.0) * vec2(u_resolution.x / u_resolution.y, 1.0);
+  vec2 pull = (kuv - center) * (0.012 + energy * 0.022);
+  vec2 feedbackUv = mirrorWrap(kuv - pull);
+
+  vec3 src = modeLiquid(kuv + flowNoise(kpn * 2.2 + vec2(u_time * 0.22, -u_time * 0.21)) * 0.012, kpn, bass, mids, highs, energy, onset, transport);
+  vec3 fb = texture(u_feedback, feedbackUv).rgb;
+
+  vec3 col = mix(src, fb, 0.26 + energy * 0.38);
+  float mandala = fbm(kpn * 5.2 + vec2(-u_time * 0.4, u_time * 0.35));
+  col *= 1.0 + mandala * 0.3;
+  col = mix(col, col * neonSwirlPalette(mandala + u_time * 0.12), 0.35 + highs * 0.2);
+  col += neonSwirlPalette(mandala + 0.23) * (0.08 + onset * 0.11);
+
+  return max(col, 0.0);
 }
 
 vec3 modeChaos(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float peak, float transport){
-  vec3 a = modeLiquid(uv, p * rot(0.2), bass, mids, highs, energy, onset, transport);
-  vec3 b = modeTunnel(uv, p * rot(-0.3), bass, mids, highs, energy, onset, peak, transport);
-  vec3 c = modeFractal(uv, p * 1.2, bass, mids, highs, energy, onset, peak, transport);
+  float transient = sat(onset * 0.9 + peak * 1.2);
+  float burst = smoothstep(0.42, 0.95, transient);
 
-  vec2 dUv = uv + vec2(
-    sin(p.y * 7.0 + u_time * 1.8 + highs * 6.0),
-    cos(p.x * 8.0 - u_time * 1.6 + mids * 4.0)
-  ) * (0.004 + peak * 0.03);
-  vec3 fb = texture(u_feedback, dUv).rgb;
+  vec2 distort = vec2(
+    sin((uv.y + u_time * 0.6) * (8.0 + energy * 14.0)),
+    cos((uv.x - u_time * 0.55) * (7.0 + energy * 13.0))
+  ) * (0.004 + energy * 0.03 + burst * 0.015);
 
-  float mixA = 0.33 + bass * 0.24;
-  float mixB = 0.36 + mids * 0.2;
-  float mixC = 0.31 + highs * 0.26;
-  vec3 col = a * mixA + b * mixB + c * mixC;
-  col += fb * (0.25 + energy * 0.32);
+  vec3 base = feedbackSwirl(uv + distort, bass, mids, highs, energy, onset, burst * 0.05, burst * 0.003);
 
-  float burst = smoothstep(0.65, 1.0, onset + peak * 0.7);
-  col += burst * vec3(0.8, 0.2, 0.45) * (0.4 + highs);
-  col *= 1.0 + burst * 0.35;
-  return col;
+  vec2 px = 1.0 / u_resolution;
+  float bloomRadius = (1.8 + burst * 18.0) * (1.0 + transient * 0.6);
+  vec3 bloom = vec3(0.0);
+  float wsum = 0.0;
+  for(int x=-3;x<=3;x++){
+    for(int y=-3;y<=3;y++){
+      vec2 off = vec2(float(x), float(y)) * px * bloomRadius;
+      float w = exp(-dot(off, off) * (22.0 - burst * 9.0));
+      vec3 s = texture(u_feedback, mirrorWrap(uv + off)).rgb;
+      bloom += s * w;
+      wsum += w;
+    }
+  }
+  bloom /= max(wsum, 1e-4);
+
+  float flashGate = step(0.86, transient) * step(0.85, fract(u_time * 60.0));
+  vec3 inv = vec3(1.0) - base;
+
+  float tempPhase = 0.5 + 0.5 * sin(u_time * 8.0 + bass * 10.0 + burst * 7.0);
+  vec3 warm = vec3(1.1, 0.95, 0.82);
+  vec3 cool = vec3(0.82, 0.95, 1.12);
+  vec3 temp = mix(warm, cool, tempPhase);
+
+  vec3 col = base;
+  col += bloom * (0.25 + burst * 0.75);
+  col = mix(col, inv, flashGate);
+  col *= temp;
+  col += neonSwirlPalette(transport + u_time * 0.11) * burst * 0.12;
+
+  // Extra highlight compression for show-state peaks (white clipping forbidden).
+  col = col / (1.0 + col * (0.85 + burst * 0.8));
+  return max(col, 0.0);
 }
 
 vec3 postProcess(vec2 uv, vec3 scene, float bass, float mids, float highs, float energy, float onset){
