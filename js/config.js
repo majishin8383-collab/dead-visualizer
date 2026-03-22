@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-107-mode2-feedback-swirl",
+  buildTag: "dv-109-unified-liquid-system",
   modes: {
     names: {
       1: "Liquid Tie-Dye",
