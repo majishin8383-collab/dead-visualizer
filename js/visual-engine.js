@@ -65,6 +65,7 @@ export class VisualEngine {
       throw new Error("WebGL2 is unavailable in this browser.");
     }
 
+    this.liquidProgram = createProgram(this.gl, SHADERS.vertex, SHADERS.liquidFragment);
     this.sceneProgram = createProgram(this.gl, SHADERS.vertex, SHADERS.sceneFragment);
     this.copyProgram = createProgram(this.gl, SHADERS.vertex, SHADERS.copyFragment);
 
@@ -81,8 +82,11 @@ export class VisualEngine {
     this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
     this.gl.bindVertexArray(null);
 
-    this.targets = { ping: null, pong: null };
+    this.targets = { ping: null, pong: null, liquid: null };
     this.modeFailure = new Set();
+    this.energyHistory = [];
+    this.burstAge = 10;
+    this.hardTransientFrames = 0;
 
     this.resize(canvas.width || window.innerWidth, canvas.height || window.innerHeight);
   }
@@ -95,11 +99,14 @@ export class VisualEngine {
 
     this.targets.ping = createRenderTexture(gl, this.canvas.width, this.canvas.height);
     this.targets.pong = createRenderTexture(gl, this.canvas.width, this.canvas.height);
+    this.targets.liquid = createRenderTexture(gl, this.canvas.width, this.canvas.height);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.targets.ping.fbo);
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.targets.pong.fbo);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.targets.liquid.fbo);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
@@ -108,6 +115,33 @@ export class VisualEngine {
     const temp = this.targets.ping;
     this.targets.ping = this.targets.pong;
     this.targets.pong = temp;
+  }
+
+
+  updateTransientState(energy, dt) {
+    this.energyHistory.push(energy);
+    if (this.energyHistory.length > 30) this.energyHistory.shift();
+
+    let rollingAvg = energy;
+    if (this.energyHistory.length > 0) {
+      const sum = this.energyHistory.reduce((acc, v) => acc + v, 0);
+      rollingAvg = sum / this.energyHistory.length;
+    }
+
+    const transientPulse = rollingAvg > 0.0001 && energy > rollingAvg * 1.5 ? Math.min(1, (energy / (rollingAvg * 1.5)) - 1.0 + 0.25) : 0;
+    if (transientPulse > 0) {
+      this.burstAge = 0;
+      if (energy > rollingAvg * 2.2) {
+        this.hardTransientFrames = 1;
+      }
+    } else {
+      this.burstAge += dt;
+    }
+
+    const hardTransient = this.hardTransientFrames > 0 ? 1 : 0;
+    if (this.hardTransientFrames > 0) this.hardTransientFrames -= 1;
+
+    return { transientPulse, hardTransient, burstAge: this.burstAge };
   }
 
   render(params) {
@@ -120,6 +154,8 @@ export class VisualEngine {
       events,
     } = params;
 
+    const transientState = this.updateTransientState(audio.energy, dt);
+
     const gl = this.gl;
     const safeMode = this.modeFailure.has(mode) ? 1 : mode;
 
@@ -131,6 +167,27 @@ export class VisualEngine {
       gl.disable(gl.BLEND);
       gl.bindVertexArray(this.quadVao);
 
+      gl.useProgram(this.liquidProgram);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.targets.liquid.fbo);
+      gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      gl.uniform2f(gl.getUniformLocation(this.liquidProgram, "u_resolution"), this.canvas.width, this.canvas.height);
+      gl.uniform1f(gl.getUniformLocation(this.liquidProgram, "u_time"), time);
+      gl.uniform4f(
+        gl.getUniformLocation(this.liquidProgram, "u_audioA"),
+        audio.bass,
+        audio.mids,
+        audio.highs,
+        audio.energy
+      );
+      gl.uniform4f(
+        gl.getUniformLocation(this.liquidProgram, "u_audioB"),
+        audio.onset,
+        audio.peak,
+        audio.transport,
+        audio.guitar
+      );
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
       gl.useProgram(this.sceneProgram);
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.targets.ping.fbo);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -138,12 +195,18 @@ export class VisualEngine {
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.targets.pong.tex);
       gl.uniform1i(gl.getUniformLocation(this.sceneProgram, "u_feedback"), 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this.targets.liquid.tex);
+      gl.uniform1i(gl.getUniformLocation(this.sceneProgram, "u_liquid"), 1);
 
       gl.uniform2f(gl.getUniformLocation(this.sceneProgram, "u_resolution"), this.canvas.width, this.canvas.height);
       gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_time"), time);
       gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_dt"), dt);
       gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_blackout"), blackout);
       gl.uniform1i(gl.getUniformLocation(this.sceneProgram, "u_mode"), safeMode);
+      gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_transientPulse"), transientState.transientPulse);
+      gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_hardTransient"), transientState.hardTransient);
+      gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_burstAge"), transientState.burstAge);
       gl.uniform4f(
         gl.getUniformLocation(this.sceneProgram, "u_audioA"),
         audio.bass,
