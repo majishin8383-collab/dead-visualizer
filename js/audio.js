@@ -29,6 +29,11 @@ export class AudioEngine {
     this.lastUpdateAt = performance.now();
     this.lastDebugAt = 0;
 
+    this.transport = 0;
+
+    this.lastUpdateAt = performance.now();
+    this.lastDebugAt = 0;
+
     // Envelope state (smoothed audio followers, not phase accumulators)
     this.smooth = {
       bass: 0,
@@ -182,6 +187,13 @@ export class AudioEngine {
     // Phase may accumulate for internal animation math, but speed is bounded and non-ratcheting.
     this.transportPhase = (this.transportPhase + (this.motion.speed / 220.0) * dt) % 1;
     this.transport = this.motion.speed;
+    const speedBase = 0.12;
+    const speedFromEnergy = this.smooth.energy * 0.85;
+    const speedFromOnset = this.smooth.onset * 0.55;
+    this.motion.speed = clamp(speedBase + speedFromEnergy + speedFromOnset, 0.08, 1.65);
+
+    // Animation phase may accumulate, but remains bounded.
+    this.transport = (this.transport + this.motion.speed * dt) % 1;
 
     if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 500) {
       this.lastDebugAt = now;
@@ -204,6 +216,7 @@ export class AudioEngine {
       air: clamp(this.smooth.air, 0, 1),
       energy: clamp(this.smooth.energy, 0, 1),
       transport: clamp(this.transport, 160, 260),
+      transport: clamp(this.transport, 0, 1),
       onset: clamp(this.smooth.onset, 0, 1),
       peak: clamp(this.smooth.peak, 0, 1),
       silence: clamp(this.smooth.silence, 0, 1),
