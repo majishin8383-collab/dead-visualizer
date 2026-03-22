@@ -202,56 +202,80 @@ void main(){
   if (u_mode == 1) {
     scene = texture(u_liquid, uv).rgb;
   } else if (u_mode == 2) {
+    // Recursive mandala tunnel built in polar space.
+    // Recursion is driven by log-radius repetition (not copied/stamped motifs).
     const float PI = 3.14159265;
-    const float N_FOLD = 5.0;
-    const int MAX_ITER = 256;
+    vec2 mp = p;
+    float r = length(mp) + 1e-5;
+    float a = atan(mp.y, mp.x);
 
-    vec2 p = (uv - 0.5) * 2.5;
-    p.x *= u_resolution.x / u_resolution.y;
+    float baseZoom = 0.14 + bass * 0.2 + energy * 0.08;
+    float zoomPhase = log(r + 1e-4) * (4.6 + bass * 2.2) - u_time * (0.7 + baseZoom);
+    float radialCell = fract(zoomPhase);
+    float radialTri = 1.0 - abs(radialCell * 2.0 - 1.0);
 
-    float angle = u_time * 0.02;
-    p = vec2(cos(angle) * p.x - sin(angle) * p.y,
-             sin(angle) * p.x + cos(angle) * p.y);
+    float folds = 9.0 + floor(mids * 4.0);
+    float foldAngle = 2.0 * PI / folds;
+    float kalei = abs(mod(a + u_time * (0.03 + highs * 0.02), foldAngle) - foldAngle * 0.5) / (foldAngle * 0.5);
+    kalei = pow(1.0 - sat(kalei), 1.45 - mids * 0.2);
 
-    float r = length(p);
-    float origAngle = atan(p.y, p.x);
-    float segAngle = 2.0 * PI / N_FOLD;
-    float segPos = mod(origAngle, segAngle);
-    if (segPos < 0.0) segPos += segAngle;
+    float bloomPulse = exp(-u_burstAge * 3.4) * u_hardTransient;
+    float recurDepthBoost = bloomPulse * 1.1 + onset * 0.45;
 
-    float sectorIndex = floor(origAngle / segAngle);
-    float mirroredAngle = (mod(sectorIndex, 2.0) == 1.0) ? (segAngle - segPos) : segPos;
-    float seamDist = min(segPos, segAngle - segPos);
-    float seamBlend = smoothstep(0.0, 0.05, seamDist);
-    float a = mix(mirroredAngle, segPos, seamBlend);
-    p = vec2(cos(a), sin(a)) * r;
-
-    vec2 z = p;
-    vec2 julia = vec2(
-      -0.4 + 0.15 * cos(u_time * 0.07),
-       0.6 + 0.10 * sin(u_time * 0.09)
-    );
-
-    float iter = 0.0;
-    for (int i = 0; i < MAX_ITER; i++) {
-      if (dot(z, z) > 4.0) break;
-      z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + julia;
-      iter += 1.0;
+    vec2 rp = vec2(zoomPhase * 0.42, a * (2.0 + mids * 0.9) / PI);
+    float detail = 0.0;
+    float amp = 0.55;
+    vec2 iter = rp;
+    for (int i = 0; i < 6; i++) {
+      float layerDrift = u_time * (0.08 + float(i) * 0.03);
+      vec2 warp = vec2(
+        sin(iter.y * (2.2 + float(i) * 0.45) + layerDrift),
+        cos(iter.x * (2.5 + float(i) * 0.38) - layerDrift)
+      );
+      iter = iter * (1.47 + 0.07 * mids) + warp * (0.55 + highs * 0.25);
+      float s = sin(iter.x + cos(iter.y));
+      float c = cos(iter.y - sin(iter.x));
+      detail += amp * (0.5 + 0.5 * s * c);
+      amp *= 0.56;
     }
 
-    vec3 col = vec3(0.0);
-    if (iter < float(MAX_ITER)) {
-      float t = iter / float(MAX_ITER);
-      float hueTime = u_time * (0.08 + highs * 0.02) + mids * 0.1;
-      col = 0.5 + 0.5 * cos(6.28318 * (
-        vec3(t * 3.0, t * 3.0 + 0.33, t * 3.0 + 0.67) + hueTime
-      ));
-      col = pow(col, vec3(0.7)) * 1.5;
-      col *= 1.0 + bass * 0.5;
-      col = clamp(col, 0.0, 1.0);
-    }
+    float centerRegrow = exp(-r * (9.0 - bass * 2.8));
+    float ringBands = smoothstep(0.22, 0.92, radialTri + detail * 0.26 + recurDepthBoost * 0.2);
+    float petalShape = pow(sat(kalei * (0.65 + ringBands * 0.65)), 1.1 - mids * 0.25);
 
-    scene = col;
+    float outerStructure = smoothstep(0.08, 0.96, fract(zoomPhase * 0.5 + detail * 0.33 + r * 0.8));
+    float fineShimmer = smoothstep(0.68, 1.0, sin(zoomPhase * 18.0 + detail * 8.0 + a * 14.0 + u_time * 1.4));
+    fineShimmer *= highs * 0.5 + bloomPulse * 0.5;
+
+    float mandalaMask = sat(petalShape * (0.65 + ringBands * 0.7) + outerStructure * 0.45);
+    mandalaMask *= 0.88 + 0.16 * exp(-r * 0.9);
+
+    float hueBase = zoomPhase * 0.07 + detail * 0.25 + u_time * (0.03 + highs * 0.035);
+    vec3 magenta = vec3(0.95, 0.12, 0.86);
+    vec3 violet = vec3(0.45, 0.14, 1.00);
+    vec3 cyan = vec3(0.06, 0.88, 1.00);
+    vec3 blue = vec3(0.10, 0.30, 1.00);
+    vec3 orange = vec3(1.00, 0.34, 0.08);
+    vec3 yellow = vec3(0.98, 0.82, 0.20);
+
+    vec3 cool = mix(violet, cyan, sat(0.5 + 0.5 * sin(hueBase + radialTri * 3.2)));
+    vec3 warm = mix(magenta, orange, sat(0.5 + 0.5 * cos(hueBase * 1.2 - detail * 0.9)));
+    vec3 accent = mix(blue, yellow, sat(0.5 + 0.5 * sin(hueBase * 1.9 + a * 2.0)));
+
+    float warmCoolMix = sat(0.5 + 0.5 * sin(zoomPhase * 0.8 - r * 2.3 + mids * 0.8));
+    vec3 col = mix(cool, warm, warmCoolMix);
+    col = mix(col, accent, 0.35 * ringBands + fineShimmer * 0.25);
+
+    col *= 0.55 + mandalaMask * 0.95;
+    col += centerRegrow * mix(magenta, cyan, 0.5 + 0.5 * sin(u_time * 0.7 + detail * 3.0)) * (0.9 + recurDepthBoost);
+    col += fineShimmer * vec3(0.35, 0.45, 0.85);
+
+    float edgeEnergy = smoothstep(0.2, 0.95, mandalaMask) * (0.35 + highs * 0.55);
+    col += edgeEnergy * vec3(0.16, 0.20, 0.35);
+
+    // Highlight compression keeps saturation/contrast while preventing white washout.
+    col = col / (1.0 + max(col.r, max(col.g, col.b)) * 0.9);
+    scene = max(col, 0.0);
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
   } else {
