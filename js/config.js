@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-143-silence-envelope-fix",
+  buildTag: "dv-144-adaptive-noise-floor",
   devControls: {
     enabled: true,
   },
@@ -83,6 +83,15 @@ export const CONFIG = {
     noiseSuppression: false,
     autoGainControl: false,
     debugTransport: true,
+    adaptiveNoiseFloor: {
+      riseSeconds: 9.0,
+      fallSeconds: 7.0,
+      captureHeadroom: 0.03,
+      bias: 0.012,
+      activeAboveFloor: 0.018,
+      signalCeiling: 0.2,
+      burstRiseSuppress: 0.12,
+    },
     tuning: {
       micSensitivity: 1.0,
       noiseGate: 0.03,
@@ -94,7 +103,7 @@ export const CONFIG = {
   },
 
   blackout: {
-    activeSignalThreshold: 0.045,
+    activeSignalThreshold: 0.02,
     holdSeconds: 0.8,
     fadeSeconds: 1.35,
     silenceStart: 0.72,
