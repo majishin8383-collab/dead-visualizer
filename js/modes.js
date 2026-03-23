@@ -279,12 +279,22 @@ void main(){
     col = mix(col, acid, highs * 0.16 * spiralMask);
 
     float edge = sat(structure * 0.8 + centerRegen * 0.45 + spiralMask * 0.3);
-    col *= 0.08 + edge * 1.12;
+    // Remove legacy darkening floor that muted saturated detail in the portal shell.
+    col *= 0.16 + edge * 1.18;
     col += centerRegen * mix(violet, cool, 0.5 + 0.5 * sin(u_time * 0.6 + trapAccum * 1.4));
     col += portalCore * (0.6 + burst * 0.6) * mix(cool, violet, 0.5 + 0.5 * sin(u_time * 0.9));
 
-    // Compression prevents white clipping while preserving saturated detail.
-    col = col / (1.0 + max(col.r, max(col.g, col.b)) * 0.95);
+    // Mode 2 color restore: moderate saturation + output lift and subtle projection bloom.
+    float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    col = mix(vec3(luma), col, 1.28 + highs * 0.24);
+    col *= 1.10 + energy * 0.08;
+
+    float bloomMask = sat(edge * 0.75 + portalCore * 0.45);
+    vec3 bloomTint = mix(cool, violet, 0.5 + 0.5 * sin(u_time * 0.7 + d * 1.2));
+    col += bloomTint * bloomMask * (0.05 + highs * 0.03);
+
+    // Soft shoulder compression prevents white clipping while keeping blacks untouched.
+    col = col / (1.0 + max(col.r, max(col.g, col.b)) * 0.78);
     scene = max(col, 0.0);
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
