@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-142-mode2-color-and-sensitivity",
+  buildTag: "dv-143-silence-envelope-fix",
   devControls: {
     enabled: true,
   },
@@ -94,6 +94,9 @@ export const CONFIG = {
   },
 
   blackout: {
+    activeSignalThreshold: 0.045,
+    holdSeconds: 0.8,
+    fadeSeconds: 1.35,
     silenceStart: 0.72,
     silenceHard: 0.9,
     silenceFull: 0.975,

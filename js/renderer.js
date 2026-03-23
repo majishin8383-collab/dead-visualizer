@@ -21,6 +21,8 @@ export class Renderer {
 
     this.motionPhase = 0;
     this.lastTs = performance.now();
+    this.lastActiveSignalAt = this.lastTs;
+    this.silenceTimer = 0;
 
     this.running = false;
     this.crashed = false;
@@ -124,6 +126,13 @@ export class Renderer {
     this.lastTs = now;
 
     const audio = this.audioEngine.update();
+    const activeSignalThreshold = CONFIG.blackout.activeSignalThreshold ?? 0.045;
+    const activeSignalLevel = Math.max(audio.energy ?? 0, (audio.onset ?? 0) * 0.7, (audio.peak ?? 0) * 0.55, (audio.bass ?? 0) * 0.5);
+    if (activeSignalLevel >= activeSignalThreshold) {
+      this.lastActiveSignalAt = now;
+    }
+    this.silenceTimer = Math.max(0, (now - this.lastActiveSignalAt) / 1000);
+
     const pulseDrive = clamp(audio.pulseDrive ?? 0, 0, 1.5);
     const phaseStep = pulseDrive > 0.01 ? pulseDrive * dt : 0;
     this.motionPhase += phaseStep;
@@ -137,7 +146,7 @@ export class Renderer {
       }
     }
 
-    const blackout = computeBlackout(audio.silence, audio.energy, events.blackoutPulse, CONFIG);
+    const blackout = computeBlackout(audio.silence, this.silenceTimer, events.blackoutPulse, CONFIG);
 
     try {
       this.visual.render({
