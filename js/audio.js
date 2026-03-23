@@ -50,6 +50,9 @@ export class AudioEngine {
     this.lastDebugAt = 0;
 
     this.noiseFloor = 0.01;
+    this.baselineEnergy = 0.02;
+    this.trueSignal = 0;
+    this.activeAboveBaseline = false;
     this.calibratedGain = 1.0;
 
     this.smooth = {
@@ -94,6 +97,7 @@ export class AudioEngine {
       shortPulse: 0,
       longPulse: 0,
       phaseGate: 0,
+      motionGate: 0,
       bassDelta: 0,
     };
     this.tuning = {
@@ -117,6 +121,10 @@ export class AudioEngine {
       pulseDrive: 0,
       energyLevel: 0,
       motionPhaseAdvancing: false,
+      noiseFloor: 0,
+      trueSignal: 0,
+      activeAboveBaseline: false,
+      motionTime: 0,
     };
   }
 
@@ -238,6 +246,10 @@ export class AudioEngine {
         onset: idle.onset,
         silence: idle.silence,
         motionPhaseAdvancing: false,
+        noiseFloor: 0,
+        trueSignal: 0,
+        activeAboveBaseline: false,
+        motionTime: 0,
       };
       return idle;
     }
@@ -253,8 +265,6 @@ export class AudioEngine {
     const rawGuitar = this.averageRange(700, 3300);
     const rms = this.computeRms();
     const peakNorm = computePeakNorm(this.freqData);
-
-    this.noiseFloor = this.noiseFloor * 0.995 + rms * 0.005;
 
     const baseEnergy =
       rawBass * 0.36 +
@@ -276,7 +286,7 @@ export class AudioEngine {
     this.raw.guitar = normalizeBand(rawGuitar * tunedGain, 0.03, 0.8);
     this.raw.rms = normalizeBand(rms * tunedGain, this.noiseFloor * 0.85, 0.4);
 
-    this.raw.energy = clamp(
+    const observedEnergy = clamp(
       this.raw.bass * 0.34 +
         this.raw.lowMid * 0.16 +
         this.raw.mids * 0.22 +
@@ -286,11 +296,39 @@ export class AudioEngine {
       1
     );
 
+    const adaptiveCfg = CONFIG.audio.adaptiveNoiseFloor ?? {};
+    const floorRiseSeconds = Math.max(6, adaptiveCfg.riseSeconds ?? 9);
+    const floorFallSeconds = Math.max(6, adaptiveCfg.fallSeconds ?? 7);
+    const riseAlpha = 1 - Math.exp(-dt / floorRiseSeconds);
+    const fallAlpha = 1 - Math.exp(-dt / floorFallSeconds);
+    const captureHeadroom = clamp(adaptiveCfg.captureHeadroom ?? 0.03, 0.005, 0.08);
+    const floorCandidate = Math.min(observedEnergy, this.baselineEnergy + captureHeadroom);
+    const burstSuppression = clamp(adaptiveCfg.burstRiseSuppress ?? 0.12, 0.02, 1);
+    const floorAlpha = floorCandidate > this.baselineEnergy ? riseAlpha * burstSuppression : fallAlpha;
+    this.baselineEnergy = clamp(
+      this.baselineEnergy + (floorCandidate - this.baselineEnergy) * floorAlpha,
+      0,
+      0.95
+    );
+    this.noiseFloor = this.noiseFloor * 0.995 + this.baselineEnergy * 0.005;
+
+    const floorBias = clamp(adaptiveCfg.bias ?? 0.012, 0.002, 0.05);
+    const activeAboveFloor = clamp(adaptiveCfg.activeAboveFloor ?? 0.018, 0.005, 0.08);
+    const floorAdjusted = this.baselineEnergy + floorBias;
+    this.trueSignal = Math.max(0, observedEnergy - floorAdjusted);
+    this.activeAboveBaseline = this.trueSignal >= activeAboveFloor;
+    const signalCeiling = clamp(adaptiveCfg.signalCeiling ?? 0.2, 0.06, 0.45);
+    this.raw.energy = clamp(this.trueSignal / signalCeiling, 0, 1);
+
     const positiveDelta = Math.max(0, this.raw.energy - this.lastEnergy);
     this.raw.onset = clamp((positiveDelta * 5.5 + Math.max(0, this.raw.rms - 0.25) * 0.25) * this.tuning.audioReactivity, 0, 1);
     this.raw.peak = clamp((peakNorm * 0.55 + this.raw.onset * 0.45) * this.tuning.peakIntensity, 0, 1);
-    this.raw.silence = clamp(1 - this.raw.energy * 1.35 - this.raw.rms * 0.35, 0, 1);
-    if (this.raw.energy < this.tuning.noiseGate) {
+    if (!this.activeAboveBaseline) {
+      this.raw.onset *= 0.15;
+      this.raw.peak *= 0.2;
+    }
+    this.raw.silence = clamp(1 - this.raw.energy * 1.6, 0, 1);
+    if (!this.activeAboveBaseline && this.raw.energy < this.tuning.noiseGate) {
       this.raw.energy = 0;
       this.raw.onset = 0;
       this.raw.peak = 0;
@@ -333,11 +371,21 @@ export class AudioEngine {
     this.pulse.shortPulse = followEnvelope(this.pulse.shortPulse, pulseComposite, 12, 4.5, dt);
     this.pulse.longPulse = followEnvelope(this.pulse.longPulse, pulseComposite, 2.8, 1.25, dt);
     const silenceGate = clamp((1 - this.smooth.silence - 0.08) / 0.28, 0, 1);
-    const pulseDriveTarget = clamp(this.pulse.shortPulse * 0.76 + this.pulse.longPulse * 0.24, 0, 1.3) * silenceGate;
+    const activityGateTarget = this.activeAboveBaseline ? 1 : 0;
+    this.pulse.motionGate = followEnvelope(this.pulse.motionGate, activityGateTarget, 8, 5.5, dt);
+    const activityGate = this.pulse.motionGate;
+    let pulseDriveTarget =
+      clamp(this.pulse.shortPulse * 0.76 + this.pulse.longPulse * 0.24, 0, 1.3) * silenceGate * activityGate;
+    const hardIdle = this.trueSignal <= activeAboveFloor * 0.5;
+    if (hardIdle) {
+      pulseDriveTarget = 0;
+      this.pulse.motionGate = 0;
+      this.pulse.phaseGate = 0;
+    }
 
     const motionAdvancing = pulseDriveTarget > 0.012;
     this.pulse.phaseGate = followEnvelope(this.pulse.phaseGate, motionAdvancing ? 1 : 0, 20, 10, dt);
-    this.motion.pulseDrive = followEnvelope(this.motion.pulseDrive, pulseDriveTarget, 15, 4.8, dt);
+    this.motion.pulseDrive = hardIdle ? 0 : followEnvelope(this.motion.pulseDrive, pulseDriveTarget, 15, 4.8, dt);
     this.motion.pulseDrive = clamp(this.motion.pulseDrive, 0, 1.3);
     this.motion.renderSpeed = this.motion.pulseDrive;
     this.motion.speed = this.motion.pulseDrive;
@@ -351,32 +399,48 @@ export class AudioEngine {
 
     const effectiveDrive = clamp(finiteOr(this.motion.pulseDrive, 0), 0, 1.5);
     const phaseSeed = finiteOr(this.motionPhase, 0);
-    this.motionPhase = phaseSeed + effectiveDrive * this.pulse.phaseGate * dt;
+    this.motionPhase = hardIdle ? phaseSeed : phaseSeed + effectiveDrive * this.pulse.phaseGate * dt;
     this.transportPhase = this.motionPhase % 1;
     this.transportPhase = finiteOr(this.transportPhase, 0);
 
     this.raw.transport = effectiveDrive;
     this.smooth.transport = followEnvelope(this.smooth.transport, effectiveDrive, 9, 3.2, dt);
     this.smooth.transport = finiteOr(this.smooth.transport, 0);
-    this.transport = clamp(finiteOr(this.transportPhase, 0), 0, 1);
+    this.transport = hardIdle ? 0 : clamp(this.smooth.transport, 0, 1);
+
+    const signalMix = clamp(this.trueSignal / Math.max(1e-5, signalCeiling), 0, 1);
+    const reactiveMix = hardIdle ? 0 : signalMix;
+    const reactiveBass = clamp(this.smooth.bass * reactiveMix, 0, 1);
+    const reactiveLowMid = clamp(this.smooth.lowMid * reactiveMix, 0, 1);
+    const reactiveMids = clamp(this.smooth.mids * reactiveMix, 0, 1);
+    const reactiveHighs = clamp(this.smooth.highs * reactiveMix, 0, 1);
+    const reactiveGuitar = clamp(this.smooth.guitar * reactiveMix, 0, 1);
+    const reactiveAir = clamp(this.smooth.air * reactiveMix, 0, 1);
+    const reactiveOnset = clamp(this.smooth.onset * reactiveMix, 0, 1);
+    const reactivePeak = clamp(this.smooth.peak * reactiveMix, 0, 1);
+    const reactiveEnergy = clamp(this.smooth.energy * reactiveMix, 0, 1);
 
     this.debugState = {
       initialized: this.ready,
       live: this.live,
       rawEnergy: this.raw.energy,
-      bass: this.smooth.bass,
-      mids: this.smooth.mids,
-      highs: this.smooth.highs,
-      smoothedEnergy: this.smooth.energy,
+      bass: reactiveBass,
+      mids: reactiveMids,
+      highs: reactiveHighs,
+      smoothedEnergy: reactiveEnergy,
       pulseDrive: this.motion.pulseDrive,
-      energyLevel: this.smooth.energy,
+      energyLevel: reactiveEnergy,
       transport: this.transport,
-      onset: this.smooth.onset,
+      onset: reactiveOnset,
       silence: this.smooth.silence,
       motionSpeed: this.motion.speed,
       detailSpeed: this.motion.detail,
       burstSpeed: this.motion.burst,
       motionPhaseAdvancing: motionAdvancing,
+      noiseFloor: this.baselineEnergy,
+      trueSignal: this.trueSignal,
+      activeAboveBaseline: this.activeAboveBaseline,
+      motionTime: this.motionPhase,
     };
 
     if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 400) {
@@ -392,24 +456,31 @@ export class AudioEngine {
         transport: Number(this.debugState.transport.toFixed(3)),
         onset: Number(this.debugState.onset.toFixed(3)),
         silence: Number(this.debugState.silence.toFixed(3)),
+        noiseFloor: Number(this.debugState.noiseFloor.toFixed(3)),
+        trueSignal: Number(this.debugState.trueSignal.toFixed(3)),
+        activeAboveBaseline: this.debugState.activeAboveBaseline,
       });
     }
 
     return {
-      bass: clamp(this.smooth.bass, 0, 1),
-      lowMid: clamp(this.smooth.lowMid, 0, 1),
-      mids: clamp(this.smooth.mids, 0, 1),
-      highs: clamp(this.smooth.highs, 0, 1),
-      guitar: clamp(this.smooth.guitar, 0, 1),
-      air: clamp(this.smooth.air, 0, 1),
-      energy: clamp(this.smooth.energy, 0, 1),
-      energyLevel: clamp(this.smooth.energy, 0, 1),
+      bass: reactiveBass,
+      lowMid: reactiveLowMid,
+      mids: reactiveMids,
+      highs: reactiveHighs,
+      guitar: reactiveGuitar,
+      air: reactiveAir,
+      energy: reactiveEnergy,
+      energyLevel: reactiveEnergy,
       pulseDrive: clamp(this.motion.pulseDrive, 0, 1.5),
       transport: clamp(this.transport, 0, 1),
       renderSpeed: clamp(this.motion.renderSpeed, 0, 1.35),
-      onset: clamp(this.smooth.onset, 0, 1),
-      peak: clamp(this.smooth.peak, 0, 1),
+      onset: reactiveOnset,
+      peak: reactivePeak,
       silence: clamp(this.smooth.silence, 0, 1),
+      noiseFloor: clamp(this.baselineEnergy, 0, 1),
+      trueSignal: clamp(this.trueSignal, 0, 1),
+      activeAboveBaseline: this.activeAboveBaseline,
+      motionTime: finiteOr(this.motionPhase, 0),
       motionSpeed: clamp(this.motion.speed, 0, 1.5),
       detailSpeed: clamp(this.motion.detail, 0, 1),
       burstSpeed: clamp(this.motion.burst, 0, 1),
