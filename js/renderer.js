@@ -19,6 +19,7 @@ export class Renderer {
 
     this.running = false;
     this.crashed = false;
+    this.forcedFallback = false;
 
     try {
       this.visual = new VisualEngine(canvas);
@@ -98,7 +99,14 @@ export class Renderer {
       this.crashed = false;
     } catch (err) {
       if (!this.crashed) {
-        console.error("Visualizer recovered into fallback frame.", err);
+        console.error("Visualizer render failed; switching to Canvas fallback engine.", err);
+      }
+      if (!this.forcedFallback) {
+        this.visual = new FallbackEngine(this.canvas);
+        this.visual.resize(window.innerWidth, window.innerHeight);
+        this.engineName = "Canvas Fallback";
+        this.forcedFallback = true;
+        this.updateHudMode();
       }
       this.crashed = true;
     }
