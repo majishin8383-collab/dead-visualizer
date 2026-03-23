@@ -127,18 +127,22 @@ export class AudioEngine {
 
   update() {
     if (!this.ready || !this.analyser) {
+      const now = performance.now();
+      const dt = clamp((now - this.lastUpdateAt) / 1000, 1 / 240, 0.1);
+      this.lastUpdateAt = now;
+      this.transportPhase = (this.transportPhase + dt * 0.08) % 1;
       return {
-        bass: 0,
-        lowMid: 0,
-        mids: 0,
-        highs: 0,
-        guitar: 0,
-        air: 0,
-        energy: 0,
-        transport: 160,
-        onset: 0,
-        peak: 0,
-        silence: 1,
+        bass: 0.08,
+        lowMid: 0.06,
+        mids: 0.1,
+        highs: 0.14,
+        guitar: 0.04,
+        air: 0.1,
+        energy: 0.12,
+        transport: this.transportPhase,
+        onset: 0.02,
+        peak: 0.04,
+        silence: 0.08,
       };
     }
 
