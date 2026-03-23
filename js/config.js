@@ -1,5 +1,8 @@
 export const CONFIG = {
-  buildTag: "dv-130-stabilize-audio-render",
+  buildTag: "dv-131-dev-controls-panel",
+  devControls: {
+    enabled: true,
+  },
   modes: {
     names: {
       1: "Liquid Tie-Dye",
@@ -80,6 +83,14 @@ export const CONFIG = {
     noiseSuppression: false,
     autoGainControl: false,
     debugTransport: true,
+    tuning: {
+      micSensitivity: 1.0,
+      noiseGate: 0.03,
+      smoothing: 0.18,
+      baselineTransport: 0.12,
+      audioReactivity: 1.0,
+      peakIntensity: 1.0,
+    },
   },
 
   blackout: {
