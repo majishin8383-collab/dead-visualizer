@@ -27,6 +27,7 @@ export class Renderer {
     this.forcedFallback = false;
 
     this.usingFallback = false;
+    this.defaultMicSensitivity = this.audioEngine.getTuning?.().micSensitivity ?? CONFIG.audio.tuning.micSensitivity;
 
     try {
       this.visual = new VisualEngine(canvas);
@@ -46,9 +47,33 @@ export class Renderer {
   }
 
   setMode(mode) {
+    const prevMode = this.mode;
     this.mode = mode;
+    this.applyModeTuning(mode, prevMode);
     this.visual.setMode?.(mode);
     this.updateHudMode();
+  }
+
+  applyModeTuning(nextMode, prevMode) {
+    if (!this.audioEngine?.getTuning || !this.audioEngine?.setTuning) return;
+    const currentSensitivity = this.audioEngine.getTuning().micSensitivity;
+
+    if (prevMode !== 2 && nextMode !== 2) {
+      this.defaultMicSensitivity = currentSensitivity;
+      return;
+    }
+
+    if (nextMode === 2) {
+      if (prevMode !== 2) {
+        this.defaultMicSensitivity = currentSensitivity;
+      }
+      this.audioEngine.setTuning({ micSensitivity: 0.5 });
+      return;
+    }
+
+    if (prevMode === 2) {
+      this.audioEngine.setTuning({ micSensitivity: this.defaultMicSensitivity });
+    }
   }
 
   activateFallback(reason = "runtime") {
@@ -108,8 +133,7 @@ export class Renderer {
       this.autoSwitchTimer += dt * (0.35 + pulseDrive * 0.65 + audio.onset * 0.35);
       if (this.autoSwitchTimer > this.autoCycleSeconds) {
         this.autoSwitchTimer = 0;
-        this.mode = this.mode >= 4 ? 1 : this.mode + 1;
-        this.updateHudMode();
+        this.setMode(this.mode >= 4 ? 1 : this.mode + 1);
       }
     }
 
