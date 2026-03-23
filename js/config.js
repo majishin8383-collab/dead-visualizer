@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-120-mode2-fractal-portal-fix1",
+  buildTag: "dv-130-stabilize-audio-render",
   modes: {
     names: {
       1: "Liquid Tie-Dye",
@@ -75,16 +75,16 @@ export const CONFIG = {
 
   audio: {
     fftSize: 2048,
-    smoothingTimeConstant: 0.64,
+    smoothingTimeConstant: 0.52,
     echoCancellation: false,
     noiseSuppression: false,
     autoGainControl: false,
-    debugTransport: false,
+    debugTransport: true,
   },
 
   blackout: {
-    silenceStart: 0.5,
-    silenceHard: 0.87,
-    silenceFull: 0.95,
+    silenceStart: 0.72,
+    silenceHard: 0.9,
+    silenceFull: 0.975,
   },
 };

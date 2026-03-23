@@ -10,6 +10,7 @@ const audioLabel = document.getElementById("audioLabel");
 const transportLabel = document.getElementById("transportLabel");
 const energyLabel = document.getElementById("energyLabel");
 const silenceLabel = document.getElementById("silenceLabel");
+const audioDebugLabel = document.getElementById("audioDebugLabel");
 const fsButton = document.getElementById("fsButton");
 const micButton = document.getElementById("micButton");
 const hud = document.getElementById("hud");
@@ -23,6 +24,7 @@ const renderer = new Renderer(canvas, audioEngine, eventsEngine, {
   transportLabel,
   energyLabel,
   silenceLabel,
+  audioDebugLabel,
 });
 
 function enterFullscreen() {
@@ -32,9 +34,7 @@ function enterFullscreen() {
   }
 }
 
-async function boot() {
-  startScreen.style.display = "none";
-
+async function connectAudio() {
   try {
     await audioEngine.start();
     audioLabel.textContent = "Live input connected";
@@ -42,6 +42,11 @@ async function boot() {
     console.error(err);
     audioLabel.textContent = "Audio permission failed";
   }
+}
+
+async function boot() {
+  startScreen.style.display = "none";
+  await connectAudio();
 }
 
 renderer.start();
@@ -55,13 +60,7 @@ startButton.addEventListener("click", boot);
 fsButton.addEventListener("click", enterFullscreen);
 
 micButton.addEventListener("click", async () => {
-  try {
-    await audioEngine.start();
-    audioLabel.textContent = "Live input connected";
-  } catch (err) {
-    console.error(err);
-    audioLabel.textContent = "Audio permission failed";
-  }
+  await connectAudio();
 });
 
 window.addEventListener("keydown", (e) => {

@@ -1,7 +1,5 @@
 import { CONFIG } from "./config.js";
 
-const SILENCE_THRESHOLD = 0.3;
-
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
@@ -13,11 +11,17 @@ function followEnvelope(current, target, attackHz, releaseHz, dt) {
   return current + (target - current) * alpha;
 }
 
-function followEnergyEnvelope(current, target, attack = 0.05, decay = 0.85) {
-  if (target > current) {
-    return clamp(current + (target - current) * attack, 0, 1);
+function normalizeBand(v, floor = 0.02, ceiling = 0.36) {
+  return clamp((v - floor) / Math.max(1e-5, ceiling - floor), 0, 1);
+}
+
+function computePeakNorm(freqData) {
+  if (!freqData || freqData.length === 0) return 0;
+  let peak = 0;
+  for (let i = 0; i < freqData.length; i++) {
+    if (freqData[i] > peak) peak = freqData[i];
   }
-  return clamp(current * decay + target * (1 - decay), 0, 1);
+  return peak / 255;
 }
 
 export class AudioEngine {
@@ -31,14 +35,18 @@ export class AudioEngine {
     this.timeData = null;
 
     this.ready = false;
+    this.live = false;
     this.lastEnergy = 0;
-    this.transport = 160;
+
+    this.transport = 0;
     this.transportPhase = 0;
 
     this.lastUpdateAt = performance.now();
     this.lastDebugAt = 0;
 
-    // Envelope state (smoothed audio followers, not phase accumulators)
+    this.noiseFloor = 0.01;
+    this.calibratedGain = 1.0;
+
     this.smooth = {
       bass: 0,
       lowMid: 0,
@@ -50,9 +58,9 @@ export class AudioEngine {
       silence: 1,
       guitar: 0,
       air: 0,
+      transport: 0,
     };
 
-    // Frame-local raw features (live values before smoothing)
     this.raw = {
       bass: 0,
       lowMid: 0,
@@ -64,21 +72,42 @@ export class AudioEngine {
       onset: 0,
       peak: 0,
       silence: 1,
+      rms: 0,
+      transport: 0,
     };
 
-    // Motion state: speed is recomputed fresh per frame.
     this.motion = {
       speed: 0,
+    };
+
+    this.debugState = {
+      initialized: false,
+      live: false,
+      rawEnergy: 0,
+      bass: 0,
+      mids: 0,
+      highs: 0,
+      smoothedEnergy: 0,
+      transport: 0,
+      onset: 0,
+      silence: 1,
     };
   }
 
   async start() {
     if (this.ready && this.ctx && this.ctx.state !== "closed") {
       if (this.ctx.state === "suspended") await this.ctx.resume();
+      this.live = true;
+      this.debugState.initialized = true;
+      this.debugState.live = true;
       return;
     }
 
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (this.ctx.state === "suspended") {
+      await this.ctx.resume();
+    }
+
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: CONFIG.audio.echoCancellation,
@@ -101,10 +130,13 @@ export class AudioEngine {
     this.lastUpdateAt = performance.now();
     this.lastDebugAt = this.lastUpdateAt;
     this.ready = true;
+    this.live = true;
+    this.debugState.initialized = true;
+    this.debugState.live = true;
   }
 
   averageRange(minHz, maxHz) {
-    if (!this.analyser || !this.freqData) return 0;
+    if (!this.analyser || !this.freqData || !this.ctx) return 0;
     const nyquist = this.ctx.sampleRate / 2;
     const n = this.freqData.length;
     const min = clamp(Math.floor((minHz / nyquist) * n), 0, n - 1);
@@ -112,7 +144,7 @@ export class AudioEngine {
 
     let sum = 0;
     for (let i = min; i < max; i++) sum += this.freqData[i];
-    return (sum / (max - min)) / 255;
+    return (sum / Math.max(1, max - min)) / 255;
   }
 
   computeRms() {
@@ -125,92 +157,156 @@ export class AudioEngine {
     return Math.sqrt(sum / this.timeData.length);
   }
 
-  update() {
-    if (!this.ready || !this.analyser) {
-      const now = performance.now();
-      const dt = clamp((now - this.lastUpdateAt) / 1000, 1 / 240, 0.1);
-      this.lastUpdateAt = now;
-      this.transportPhase = (this.transportPhase + dt * 0.08) % 1;
-      return {
-        bass: 0.08,
-        lowMid: 0.06,
-        mids: 0.1,
-        highs: 0.14,
-        guitar: 0.04,
-        air: 0.1,
-        energy: 0.12,
-        transport: this.transportPhase,
-        onset: 0.02,
-        peak: 0.04,
-        silence: 0.08,
-      };
-    }
+  getDebugState() {
+    return { ...this.debugState };
+  }
 
+  update() {
     const now = performance.now();
     const dt = clamp((now - this.lastUpdateAt) / 1000, 1 / 240, 0.1);
     this.lastUpdateAt = now;
 
+    if (!this.ready || !this.analyser || !this.freqData || !this.timeData) {
+      this.transportPhase = (this.transportPhase + dt * 0.12) % 1;
+      const idle = {
+        bass: 0.05,
+        lowMid: 0.05,
+        mids: 0.07,
+        highs: 0.08,
+        guitar: 0.04,
+        air: 0.07,
+        energy: 0.08,
+        transport: this.transportPhase,
+        onset: 0.01,
+        peak: 0.01,
+        silence: 0.85,
+      };
+      this.debugState = {
+        initialized: this.ready,
+        live: this.live,
+        rawEnergy: idle.energy,
+        bass: idle.bass,
+        mids: idle.mids,
+        highs: idle.highs,
+        smoothedEnergy: idle.energy,
+        transport: idle.transport,
+        onset: idle.onset,
+        silence: idle.silence,
+      };
+      return idle;
+    }
+
     this.analyser.getByteFrequencyData(this.freqData);
     this.analyser.getByteTimeDomainData(this.timeData);
 
-    this.raw.bass = clamp(this.averageRange(28, 200), 0, 1);
-    this.raw.lowMid = clamp(this.averageRange(130, 350), 0, 1);
-    this.raw.mids = clamp(this.averageRange(200, 2000), 0, 1);
-    this.raw.highs = clamp(this.averageRange(2000, 9000), 0, 1);
-    this.raw.air = clamp(this.averageRange(9000, 15000), 0, 1);
-    this.raw.guitar = clamp(this.averageRange(600, 3200), 0, 1);
-
+    const rawBass = this.averageRange(30, 180);
+    const rawLowMid = this.averageRange(180, 500);
+    const rawMids = this.averageRange(500, 2500);
+    const rawHighs = this.averageRange(2500, 9000);
+    const rawAir = this.averageRange(9000, 15000);
+    const rawGuitar = this.averageRange(700, 3300);
     const rms = this.computeRms();
-    this.raw.energy = clamp(0.5 * this.raw.bass + 0.35 * this.raw.mids + 0.15 * rms * 2.2, 0, 1);
+    const peakNorm = computePeakNorm(this.freqData);
 
-    const flux = Math.max(0, this.raw.energy - this.lastEnergy);
-    this.raw.onset = clamp(flux * 6.5, 0, 1);
-    this.raw.peak = clamp(this.raw.onset * 0.7 + flux * 2.4, 0, 1);
-    this.raw.silence = clamp(1 - this.raw.energy * 1.55, 0, 1);
+    this.noiseFloor = this.noiseFloor * 0.995 + rms * 0.005;
+
+    const baseEnergy =
+      rawBass * 0.36 +
+      rawLowMid * 0.2 +
+      rawMids * 0.24 +
+      rawHighs * 0.1 +
+      rms * 0.95 +
+      peakNorm * 0.1;
+
+    const targetGain = clamp(0.45 / Math.max(0.06, baseEnergy), 0.9, 2.8);
+    this.calibratedGain = followEnvelope(this.calibratedGain, targetGain, 1.6, 0.5, dt);
+
+    this.raw.bass = normalizeBand(rawBass * this.calibratedGain, 0.03, 0.82);
+    this.raw.lowMid = normalizeBand(rawLowMid * this.calibratedGain, 0.03, 0.78);
+    this.raw.mids = normalizeBand(rawMids * this.calibratedGain, 0.03, 0.8);
+    this.raw.highs = normalizeBand(rawHighs * this.calibratedGain, 0.02, 0.75);
+    this.raw.air = normalizeBand(rawAir * this.calibratedGain, 0.02, 0.75);
+    this.raw.guitar = normalizeBand(rawGuitar * this.calibratedGain, 0.03, 0.8);
+    this.raw.rms = normalizeBand(rms * this.calibratedGain, this.noiseFloor * 0.85, 0.4);
+
+    this.raw.energy = clamp(
+      this.raw.bass * 0.34 +
+        this.raw.lowMid * 0.16 +
+        this.raw.mids * 0.22 +
+        this.raw.highs * 0.1 +
+        this.raw.rms * 0.3,
+      0,
+      1
+    );
+
+    const positiveDelta = Math.max(0, this.raw.energy - this.lastEnergy);
+    this.raw.onset = clamp(positiveDelta * 5.5 + Math.max(0, this.raw.rms - 0.25) * 0.25, 0, 1);
+    this.raw.peak = clamp(peakNorm * 0.55 + this.raw.onset * 0.45, 0, 1);
+    this.raw.silence = clamp(1 - this.raw.energy * 1.35 - this.raw.rms * 0.35, 0, 1);
     this.lastEnergy = this.raw.energy;
 
-    // Smoothed envelopes with explicit attack/release behavior.
-    this.smooth.bass = followEnvelope(this.smooth.bass, this.raw.bass, 14, 6, dt);
-    this.smooth.lowMid = followEnvelope(this.smooth.lowMid, this.raw.lowMid, 13, 5.5, dt);
-    this.smooth.mids = followEnvelope(this.smooth.mids, this.raw.mids, 14, 6, dt);
-    this.smooth.highs = followEnvelope(this.smooth.highs, this.raw.highs, 16, 7, dt);
-    this.smooth.air = followEnvelope(this.smooth.air, this.raw.air, 18, 8, dt);
-    this.smooth.guitar = followEnvelope(this.smooth.guitar, this.raw.guitar, 14, 6, dt);
-    this.smooth.energy = followEnergyEnvelope(this.smooth.energy, this.raw.energy, 0.05, 0.85);
-    this.smooth.onset = followEnvelope(this.smooth.onset, this.raw.onset, 34, 6, dt);
-    this.smooth.peak = followEnvelope(this.smooth.peak, this.raw.peak, 42, 2.8, dt);
-    this.smooth.silence = followEnvelope(this.smooth.silence, this.raw.silence, 10, 3.5, dt);
+    this.smooth.bass = followEnvelope(this.smooth.bass, this.raw.bass, 12, 5, dt);
+    this.smooth.lowMid = followEnvelope(this.smooth.lowMid, this.raw.lowMid, 11, 4.5, dt);
+    this.smooth.mids = followEnvelope(this.smooth.mids, this.raw.mids, 12, 5, dt);
+    this.smooth.highs = followEnvelope(this.smooth.highs, this.raw.highs, 14, 6.2, dt);
+    this.smooth.air = followEnvelope(this.smooth.air, this.raw.air, 14, 6.8, dt);
+    this.smooth.guitar = followEnvelope(this.smooth.guitar, this.raw.guitar, 12, 5, dt);
+    this.smooth.energy = followEnvelope(this.smooth.energy, this.raw.energy, 8.5, 2.8, dt);
+    this.smooth.onset = followEnvelope(this.smooth.onset, this.raw.onset, 28, 7, dt);
+    this.smooth.peak = followEnvelope(this.smooth.peak, this.raw.peak, 24, 5, dt);
+    this.smooth.silence = followEnvelope(this.smooth.silence, this.raw.silence, 6, 3, dt);
 
-    // Speed is derived fresh from live envelope state every frame (no ratcheting).
-    // Units are normalized intensity, guided by musical transients.
-    const highsMotionInfluence = Math.min(this.smooth.highs * 0.1, 0.15);
-    this.motion.speed =
-      clamp(0.03 + this.smooth.bass * 0.75 + this.smooth.mids * 0.2 + this.smooth.onset * 0.12 + highsMotionInfluence, 0.02, 1.8) *
-      0.4;
+    const motionFloor = 0.13;
+    this.motion.speed = clamp(
+      motionFloor +
+        this.smooth.energy * 0.6 +
+        this.smooth.bass * 0.28 +
+        this.smooth.onset * 0.42 +
+        this.smooth.highs * 0.08,
+      0.08,
+      1.6
+    );
 
-    // Build transport directly from rhythmic content (no frame-to-frame accumulation).
-    const rhythmicTransport = clamp(this.smooth.onset * 0.72 + this.smooth.peak * 0.2 + this.smooth.bass * 0.18, 0, 1);
+    const transportDrive = clamp(
+      0.18 + this.smooth.energy * 0.52 + this.smooth.onset * 0.64 + this.smooth.bass * 0.22,
+      0.08,
+      1.3
+    );
 
-    // Hard-cut transport in silence so visuals can drop fully to black immediately.
-    if (this.smooth.silence > SILENCE_THRESHOLD) {
-      this.transportPhase = 0;
-      this.transport = 0;
-      this.motion.speed = 0;
-    } else {
-      // Keep phase/debug channel aligned to transport intensity to avoid apparent self-acceleration.
-      this.transportPhase = rhythmicTransport;
-      this.transport = rhythmicTransport;
-    }
+    const silent = this.smooth.silence > 0.96;
+    const effectiveDrive = silent ? 0.03 : transportDrive;
+    this.transportPhase = (this.transportPhase + effectiveDrive * dt * 0.95) % 1;
 
-    if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 500) {
+    this.raw.transport = effectiveDrive;
+    this.smooth.transport = followEnvelope(this.smooth.transport, effectiveDrive, 9, 3.2, dt);
+    this.transport = this.transportPhase;
+
+    this.debugState = {
+      initialized: this.ready,
+      live: this.live,
+      rawEnergy: this.raw.energy,
+      bass: this.smooth.bass,
+      mids: this.smooth.mids,
+      highs: this.smooth.highs,
+      smoothedEnergy: this.smooth.energy,
+      transport: this.transport,
+      onset: this.smooth.onset,
+      silence: this.smooth.silence,
+    };
+
+    if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 400) {
       this.lastDebugAt = now;
       console.debug("[audio-debug]", {
-        rawEnergy: Number(this.raw.energy.toFixed(3)),
-        smoothedEnergy: Number(this.smooth.energy.toFixed(3)),
-        speed: Number(this.motion.speed.toFixed(3)),
-        transport: Number(this.transport.toFixed(3)),
-        transportPhase: Number(this.transportPhase.toFixed(3)),
-        onset: Number(this.smooth.onset.toFixed(3)),
+        initialized: this.debugState.initialized,
+        live: this.debugState.live,
+        rawEnergy: Number(this.debugState.rawEnergy.toFixed(3)),
+        bass: Number(this.debugState.bass.toFixed(3)),
+        mids: Number(this.debugState.mids.toFixed(3)),
+        highs: Number(this.debugState.highs.toFixed(3)),
+        smoothedEnergy: Number(this.debugState.smoothedEnergy.toFixed(3)),
+        transport: Number(this.debugState.transport.toFixed(3)),
+        onset: Number(this.debugState.onset.toFixed(3)),
+        silence: Number(this.debugState.silence.toFixed(3)),
       });
     }
 
