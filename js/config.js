@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-131-dev-controls-panel",
+  buildTag: "dv-131-title-update",
   devControls: {
     enabled: true,
   },
