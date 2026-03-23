@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-140-audio-only-motion",
+  buildTag: "dv-142-mode2-color-and-sensitivity",
   devControls: {
     enabled: true,
   },
