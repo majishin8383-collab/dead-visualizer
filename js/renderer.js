@@ -3,6 +3,10 @@ import { computeBlackout } from "./transitions.js";
 import { VisualEngine } from "./visual-engine.js";
 import { FallbackEngine } from "./fallback-engine.js";
 
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
+
 export class Renderer {
   constructor(canvas, audioEngine, eventsEngine, hudRefs) {
     this.canvas = canvas;
@@ -93,9 +97,11 @@ export class Renderer {
     const now = performance.now();
     const dt = Math.min(0.05, Math.max(1 / 240, (now - this.lastTs) / 1000));
     this.lastTs = now;
-    this.masterTime += dt;
 
     const audio = this.audioEngine.update();
+    const unifiedSpeed = clamp(audio.renderSpeed ?? 0.12, 0.04, 1.35);
+    const minimumFlow = 0.035;
+    this.masterTime += dt * Math.max(minimumFlow, unifiedSpeed);
     const events = this.eventsEngine.update(audio, dt);
 
     if (this.autoMode) {

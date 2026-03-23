@@ -77,7 +77,7 @@ export class AudioEngine {
     };
 
     this.motion = {
-      speed: 0,
+      renderSpeed: 0.12,
     };
     this.tuning = {
       ...CONFIG.audio.tuning,
@@ -194,6 +194,7 @@ export class AudioEngine {
         air: 0.07,
         energy: 0.08,
         transport: this.transportPhase,
+        renderSpeed: clamp(this.tuning.baselineTransport * 0.4, 0.04, 0.2),
         onset: 0.01,
         peak: 0.01,
         silence: 0.85,
@@ -282,14 +283,15 @@ export class AudioEngine {
     this.smooth.silence = followEnvelope(this.smooth.silence, this.raw.silence, 6 * smoothingMul, 3 * smoothingMul, dt);
 
     const motionFloor = this.tuning.baselineTransport;
-    this.motion.speed = clamp(
-      motionFloor +
-        this.smooth.energy * 0.6 * this.tuning.audioReactivity +
-        this.smooth.bass * 0.28 +
-        this.smooth.onset * 0.42 +
-        this.smooth.highs * 0.08,
-      0.08,
-      1.6
+    this.motion.renderSpeed = clamp(
+      0.03 +
+        motionFloor * 0.32 +
+        this.smooth.energy * 0.42 * this.tuning.audioReactivity +
+        this.smooth.onset * 0.34 * this.tuning.audioReactivity +
+        this.smooth.transport * 0.24 +
+        this.smooth.peak * (0.16 + 0.1 * this.tuning.peakIntensity),
+      0.04,
+      1.35
     );
 
     const transportDrive = clamp(
@@ -347,6 +349,7 @@ export class AudioEngine {
       air: clamp(this.smooth.air, 0, 1),
       energy: clamp(this.smooth.energy, 0, 1),
       transport: clamp(this.transport, 0, 1),
+      renderSpeed: clamp(this.motion.renderSpeed, 0.04, 1.35),
       onset: clamp(this.smooth.onset, 0, 1),
       peak: clamp(this.smooth.peak, 0, 1),
       silence: clamp(this.smooth.silence, 0, 1),
