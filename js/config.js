@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-134-unified-speed-system",
+  buildTag: "dv-140-audio-only-motion",
   devControls: {
     enabled: true,
   },

@@ -16,14 +16,15 @@ export function drawBlackFade(ctx, width, height, amount) {
 }
 
 export function computeBlackout(silence, energy, blackoutPulse, config) {
-  const baseFade = 0.015 + (1 - energy) * 0.025;
-  const silenceFade = smoothstep(config.blackout.silenceStart, config.blackout.silenceHard, silence) * 0.72;
+  const baseFade = energy > 0.005 ? 0 : 0.02;
+  const silenceFade = smoothstep(config.blackout.silenceStart, config.blackout.silenceHard, silence) * 0.88;
   const manualFade = blackoutPulse * 0.92;
-  const fade = clamp(baseFade + silenceFade + manualFade, 0, 1);
+  const hardSilence = silence >= config.blackout.silenceHard;
+  const fade = hardSilence ? 1 : clamp(baseFade + silenceFade + manualFade, 0, 1);
 
   return {
     fade,
-    hard: silence > config.blackout.silenceHard,
+    hard: hardSilence,
     full: silence > config.blackout.silenceFull,
   };
 }
