@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Stella Blue Experience dv-131-title-update</title>
+  <title>Dead Visualizer dv-132-control-range-and-speed-fix</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Rye&family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/styles.css?v=131titleupdate" />
+  <link rel="stylesheet" href="./css/styles.css?v=132speedfix" />
 </head>
 <body>
   <div id="app">
@@ -36,7 +36,7 @@
 
       <div id="warmupStatus" aria-live="polite">warming up...</div>
       <button id="startButton">LAUNCH THE SHOW</button>
-      <p id="versionTag">dv-131-title-update</p>
+      <p id="versionTag">dv-132-control-range-and-speed-fix</p>
     </div>
   </div>
 
@@ -63,21 +63,21 @@
       <div class="dev-section">
         <h4>Audio</h4>
         <label>Mic Sensitivity <span id="micSensitivityValue">1.00</span></label>
-        <input id="micSensitivity" type="range" min="0.2" max="2.2" step="0.01" />
+        <input id="micSensitivity" type="range" min="0.10" max="4.00" step="0.01" />
         <label>Noise Gate <span id="noiseGateValue">0.03</span></label>
         <input id="noiseGate" type="range" min="0" max="0.2" step="0.005" />
         <label>Smoothing <span id="smoothingValue">0.18</span></label>
-        <input id="smoothing" type="range" min="0.02" max="0.7" step="0.01" />
+        <input id="smoothing" type="range" min="0.02" max="0.50" step="0.01" />
       </div>
 
       <div class="dev-section">
         <h4>Motion</h4>
         <label>Baseline Transport <span id="baselineTransportValue">0.12</span></label>
-        <input id="baselineTransport" type="range" min="0.02" max="0.6" step="0.01" />
+        <input id="baselineTransport" type="range" min="0.00" max="1.50" step="0.01" />
         <label>Audio Reactivity <span id="audioReactivityValue">1.00</span></label>
-        <input id="audioReactivity" type="range" min="0.2" max="2.5" step="0.01" />
+        <input id="audioReactivity" type="range" min="0.00" max="3.00" step="0.01" />
         <label>Peak Intensity <span id="peakIntensityValue">1.00</span></label>
-        <input id="peakIntensity" type="range" min="0.2" max="2.5" step="0.01" />
+        <input id="peakIntensity" type="range" min="0.00" max="4.00" step="0.01" />
       </div>
 
       <div class="dev-section">
@@ -107,6 +107,6 @@
     </div>
   </div>
 
-  <script type="module" src="./js/main.js?v=131titleupdate"></script>
+  <script type="module" src="./js/main.js?v=132speedfix"></script>
 </body>
 </html>

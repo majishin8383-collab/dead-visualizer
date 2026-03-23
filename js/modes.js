@@ -240,14 +240,14 @@ void main(){
       float fi = float(i);
       float iterMask = step(fi, depthMix + 2.0);
       vec2 wobble = vec2(
-        sin(u_time * (0.18 + fi * 0.03) + q.y * (1.5 + fi * 0.2)),
-        cos(u_time * (0.16 + fi * 0.04) - q.x * (1.7 + fi * 0.18))
+        sin(u_time * (0.09 + fi * 0.015) + q.y * (1.0 + fi * 0.15)),
+        cos(u_time * (0.08 + fi * 0.018) - q.x * (1.15 + fi * 0.14))
       ) * (0.04 + highs * 0.07);
 
       q = abs(q + wobble);
       float invDen = max(dot(q, q), 0.06 + 0.03 * bass);
       q = q / invDen - vec2(0.72 + mids * 0.2, 0.66 + bass * 0.16);
-      q *= rot(0.14 + fi * (0.05 + mids * 0.02));
+      q *= rot(0.09 + fi * (0.028 + mids * 0.012));
 
       float l = length(q);
       trapMin = min(trapMin, l);
