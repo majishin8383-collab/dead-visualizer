@@ -84,6 +84,9 @@ export class AudioEngine {
     this.tuning = {
       ...CONFIG.audio.tuning,
     };
+    this.tuning = {
+      ...CONFIG.audio.tuning,
+    };
 
     this.debugState = {
       initialized: false,
