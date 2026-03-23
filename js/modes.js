@@ -274,27 +274,28 @@ void main(){
     vec3 violet = vec3(0.72, 0.10, 1.00);
     vec3 acid = vec3(0.75, 1.00, 0.16);
 
-    col = mix(col, mix(violet, cool, sat(structure)), 0.55);
+    col = mix(col, mix(violet, cool, sat(structure)), 0.62);
     col = mix(col, warm, sat(0.25 + burst * 0.55 + onset * 0.25) * sat(petals));
     col = mix(col, acid, highs * 0.16 * spiralMask);
 
     float edge = sat(structure * 0.8 + centerRegen * 0.45 + spiralMask * 0.3);
     // Remove legacy darkening floor that muted saturated detail in the portal shell.
-    col *= 0.16 + edge * 1.18;
+    col *= 0.26 + edge * 1.24;
     col += centerRegen * mix(violet, cool, 0.5 + 0.5 * sin(u_time * 0.6 + trapAccum * 1.4));
     col += portalCore * (0.6 + burst * 0.6) * mix(cool, violet, 0.5 + 0.5 * sin(u_time * 0.9));
 
-    // Mode 2 color restore: moderate saturation + output lift and subtle projection bloom.
+    // Match Mode 1 vividness profile: stronger saturation/contrast without changing motion logic.
     float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
-    col = mix(vec3(luma), col, 1.28 + highs * 0.24);
-    col *= 1.10 + energy * 0.08;
+    col = mix(vec3(luma), col, 1.46 + highs * 0.20);
+    col = (col - 0.5) * (1.10 + mids * 0.18) + 0.5;
+    col *= 1.18 + energy * 0.10;
 
     float bloomMask = sat(edge * 0.75 + portalCore * 0.45);
     vec3 bloomTint = mix(cool, violet, 0.5 + 0.5 * sin(u_time * 0.7 + d * 1.2));
-    col += bloomTint * bloomMask * (0.05 + highs * 0.03);
+    col += bloomTint * bloomMask * (0.06 + highs * 0.03);
 
-    // Soft shoulder compression prevents white clipping while keeping blacks untouched.
-    col = col / (1.0 + max(col.r, max(col.g, col.b)) * 0.78);
+    // Keep soft highlight shoulder but reduce damping so Mode 2 matches Mode 1 vibrance.
+    col = col / (1.0 + max(col.r, max(col.g, col.b)) * 0.55);
     scene = max(col, 0.0);
   } else if (u_mode == 3) {
     scene = texture(u_liquid, uv).rgb;
