@@ -4,6 +4,10 @@ function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
+function finiteOr(value, fallback = 0) {
+  return Number.isFinite(value) ? value : fallback;
+}
+
 function followEnvelope(current, target, attackHz, releaseHz, dt) {
   const rise = target > current;
   const rate = rise ? attackHz : releaseHz;
@@ -78,6 +82,9 @@ export class AudioEngine {
 
     this.motion = {
       renderSpeed: 0.12,
+      speed: 0.12,
+      detail: 0,
+      burst: 0,
     };
     this.tuning = {
       ...CONFIG.audio.tuning,
@@ -285,31 +292,41 @@ export class AudioEngine {
     this.smooth.peak = followEnvelope(this.smooth.peak, this.raw.peak, 24 * smoothingMul, 5 * smoothingMul, dt);
     this.smooth.silence = followEnvelope(this.smooth.silence, this.raw.silence, 6 * smoothingMul, 3 * smoothingMul, dt);
 
-    const motionFloor = this.tuning.baselineTransport;
+    const motionFloor = finiteOr(this.tuning.baselineTransport, 0.12);
+    const safeEnergy = finiteOr(this.smooth.energy, 0);
+    const safeOnset = finiteOr(this.smooth.onset, 0);
+    const safePeak = finiteOr(this.smooth.peak, 0);
+    const safeMids = finiteOr(this.smooth.mids, 0);
+    const safeHighs = finiteOr(this.smooth.highs, 0);
     this.motion.renderSpeed = clamp(
       0.03 +
         motionFloor * 0.32 +
-        this.smooth.energy * 0.42 * this.tuning.audioReactivity +
-        this.smooth.onset * 0.34 * this.tuning.audioReactivity +
-        this.smooth.transport * 0.24 +
-        this.smooth.peak * (0.16 + 0.1 * this.tuning.peakIntensity),
+        safeEnergy * 0.42 * this.tuning.audioReactivity +
+        safeOnset * 0.34 * this.tuning.audioReactivity +
+        finiteOr(this.smooth.transport, 0) * 0.24 +
+        safePeak * (0.16 + 0.1 * this.tuning.peakIntensity),
       0.04,
       1.35
     );
+    this.motion.speed = finiteOr(this.motion.renderSpeed, 0.12);
     this.motion.detail = clamp(
-      motionFloor * 0.08 + easedMids * 0.08 + easedHighs * 0.11,
+      motionFloor * 0.08 + safeMids * 0.08 + safeHighs * 0.11,
       0,
       0.45
     );
+    const compressedBurst = clamp(safeOnset * 0.6 + safePeak * 0.4, 0, 1);
     this.motion.burst = clamp(compressedBurst, 0, 1);
 
     const silent = this.smooth.silence > 0.96;
-    const effectiveDrive = silent ? motionFloor * 0.08 : this.motion.speed;
-    this.transportPhase = (this.transportPhase + effectiveDrive * dt * 0.95) % 1;
+    const effectiveDrive = clamp(finiteOr(silent ? motionFloor * 0.08 : this.motion.speed, motionFloor * 0.08), 0, 1.5);
+    const phaseSeed = finiteOr(this.transportPhase, 0);
+    this.transportPhase = (phaseSeed + effectiveDrive * dt * 0.95) % 1;
+    this.transportPhase = finiteOr(this.transportPhase, 0);
 
     this.raw.transport = effectiveDrive;
     this.smooth.transport = followEnvelope(this.smooth.transport, effectiveDrive, 9, 3.2, dt);
-    this.transport = this.transportPhase;
+    this.smooth.transport = finiteOr(this.smooth.transport, 0);
+    this.transport = clamp(finiteOr(this.transportPhase, 0), 0, 1);
 
     this.debugState = {
       initialized: this.ready,
