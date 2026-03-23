@@ -19,6 +19,7 @@ export class Renderer {
 
     this.running = false;
     this.crashed = false;
+    this.forcedFallback = false;
 
     this.usingFallback = false;
 
