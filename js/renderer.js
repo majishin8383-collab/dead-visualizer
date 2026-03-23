@@ -127,7 +127,12 @@ export class Renderer {
 
     const audio = this.audioEngine.update();
     const activeSignalThreshold = CONFIG.blackout.activeSignalThreshold ?? 0.045;
-    const activeSignalLevel = Math.max(audio.energy ?? 0, (audio.onset ?? 0) * 0.7, (audio.peak ?? 0) * 0.55, (audio.bass ?? 0) * 0.5);
+    const activeSignalLevel = Math.max(
+      audio.trueSignal ?? 0,
+      audio.energy ?? 0,
+      (audio.onset ?? 0) * 0.55,
+      (audio.peak ?? 0) * 0.45
+    );
     if (activeSignalLevel >= activeSignalThreshold) {
       this.lastActiveSignalAt = now;
     }
@@ -189,11 +194,14 @@ export class Renderer {
           ` mids:${dbg.mids.toFixed(2)}` +
           ` highs:${dbg.highs.toFixed(2)}` +
           ` smE:${dbg.smoothedEnergy.toFixed(2)}` +
+          ` nf:${dbg.noiseFloor.toFixed(2)}` +
+          ` ts:${dbg.trueSignal.toFixed(2)}` +
           ` pd:${dbg.pulseDrive.toFixed(2)}` +
           ` eL:${dbg.energyLevel.toFixed(2)}` +
           ` tr:${dbg.transport.toFixed(2)}` +
           ` on:${dbg.onset.toFixed(2)}` +
           ` sil:${dbg.silence.toFixed(2)}` +
+          ` act:${dbg.activeAboveBaseline ? "Y" : "N"}` +
           ` ph:${dbg.motionPhaseAdvancing ? "Y" : "N"}`;
       }
     }
