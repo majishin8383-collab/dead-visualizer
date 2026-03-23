@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dead Visualizer dv-105-launch-screen</title>
+  <title>Dead Visualizer dv-130-stabilize-audio-render</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Rye&family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/styles.css?v=105launch" />
+  <link rel="stylesheet" href="./css/styles.css?v=130stabilize" />
 </head>
 <body>
   <div id="app">
@@ -36,7 +36,7 @@
 
       <div id="warmupStatus" aria-live="polite">warming up...</div>
       <button id="startButton">LAUNCH THE SHOW</button>
-      <p id="versionTag">dv-120-mode2-fractal-portal-fix1</p>
+      <p id="versionTag">dv-130-stabilize-audio-render</p>
     </div>
   </div>
 
@@ -47,12 +47,13 @@
       <div><strong>Transport:</strong> <span id="transportLabel">0.00</span></div>
       <div><strong>Energy:</strong> <span id="energyLabel">0.00</span></div>
       <div><strong>Silence:</strong> <span id="silenceLabel">1.00</span></div>
+      <div class="small" id="audioDebugLabel">init:N live:N rawE:0.00 bass:0.00 mids:0.00 highs:0.00 smE:0.00 tr:0.00 on:0.00 sil:1.00</div>
       <div class="small">1 / 2 / 3 / 4 / A / H / F / Space</div>
       <button id="fsButton">Fullscreen</button>
       <button id="micButton">Reconnect Audio</button>
     </div>
   </div>
 
-  <script type="module" src="./js/main.js?v=105launch"></script>
+  <script type="module" src="./js/main.js?v=130stabilize"></script>
 </body>
 </html>

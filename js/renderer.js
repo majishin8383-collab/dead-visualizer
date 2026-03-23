@@ -104,7 +104,7 @@ export class Renderer {
         mode: this.mode,
         time: this.masterTime,
         dt,
-        blackout: Math.min(1, blackout.fade),
+        blackout: blackout.fade,
         audio,
         events,
       });
@@ -119,7 +119,7 @@ export class Renderer {
       this.visual.render?.({
         mode: this.mode,
         time: this.masterTime,
-        blackout: Math.min(1, blackout.fade),
+        blackout: blackout.fade,
         audio,
       });
       this.crashed = true;
@@ -128,5 +128,22 @@ export class Renderer {
     this.hudRefs.transportLabel.textContent = audio.transport.toFixed(2);
     this.hudRefs.energyLabel.textContent = audio.energy.toFixed(2);
     this.hudRefs.silenceLabel.textContent = audio.silence.toFixed(2);
+
+    if (this.hudRefs.audioDebugLabel) {
+      const dbg = this.audioEngine.getDebugState?.();
+      if (dbg) {
+        this.hudRefs.audioDebugLabel.textContent =
+          `init:${dbg.initialized ? "Y" : "N"}` +
+          ` live:${dbg.live ? "Y" : "N"}` +
+          ` rawE:${dbg.rawEnergy.toFixed(2)}` +
+          ` bass:${dbg.bass.toFixed(2)}` +
+          ` mids:${dbg.mids.toFixed(2)}` +
+          ` highs:${dbg.highs.toFixed(2)}` +
+          ` smE:${dbg.smoothedEnergy.toFixed(2)}` +
+          ` tr:${dbg.transport.toFixed(2)}` +
+          ` on:${dbg.onset.toFixed(2)}` +
+          ` sil:${dbg.silence.toFixed(2)}`;
+      }
+    }
   }
 }
