@@ -78,6 +78,11 @@ export class AudioEngine {
 
     this.motion = {
       speed: 0,
+      detail: 0,
+      burst: 0,
+    };
+    this.tuning = {
+      ...CONFIG.audio.tuning,
     };
     this.tuning = {
       ...CONFIG.audio.tuning,
@@ -94,6 +99,9 @@ export class AudioEngine {
       transport: 0,
       onset: 0,
       silence: 1,
+      motionSpeed: 0,
+      detailSpeed: 0,
+      burstSpeed: 0,
     };
   }
 
@@ -269,7 +277,7 @@ export class AudioEngine {
     }
     this.lastEnergy = this.raw.energy;
 
-    const smoothingMul = clamp(1.35 - this.tuning.smoothing, 0.25, 2.2);
+    const smoothingMul = clamp(1.2 - this.tuning.smoothing, 0.2, 2.0);
     this.smooth.bass = followEnvelope(this.smooth.bass, this.raw.bass, 12 * smoothingMul, 5 * smoothingMul, dt);
     this.smooth.lowMid = followEnvelope(this.smooth.lowMid, this.raw.lowMid, 11 * smoothingMul, 4.5 * smoothingMul, dt);
     this.smooth.mids = followEnvelope(this.smooth.mids, this.raw.mids, 12 * smoothingMul, 5 * smoothingMul, dt);
@@ -281,28 +289,38 @@ export class AudioEngine {
     this.smooth.peak = followEnvelope(this.smooth.peak, this.raw.peak, 24 * smoothingMul, 5 * smoothingMul, dt);
     this.smooth.silence = followEnvelope(this.smooth.silence, this.raw.silence, 6 * smoothingMul, 3 * smoothingMul, dt);
 
-    const motionFloor = this.tuning.baselineTransport;
-    this.motion.speed = clamp(
-      motionFloor +
-        this.smooth.energy * 0.6 * this.tuning.audioReactivity +
-        this.smooth.bass * 0.28 +
-        this.smooth.onset * 0.42 +
-        this.smooth.highs * 0.08,
-      0.08,
-      1.6
-    );
+    const motionFloor = Math.max(0, this.tuning.baselineTransport);
+    const reactivity = Math.max(0, this.tuning.audioReactivity);
+    const peakIntensity = Math.max(0, this.tuning.peakIntensity);
+    const easedEnergy = Math.pow(clamp(this.smooth.energy, 0, 1), 1.85);
+    const easedBass = Math.pow(clamp(this.smooth.bass, 0, 1), 1.65);
+    const easedOnset = Math.pow(clamp(this.smooth.onset, 0, 1), 1.4);
+    const easedPeak = Math.pow(clamp(this.smooth.peak, 0, 1), 2.2);
+    const easedMids = Math.pow(clamp(this.smooth.mids, 0, 1), 1.25);
+    const easedHighs = Math.pow(clamp(this.smooth.highs, 0, 1), 1.35);
 
-    const transportDrive = clamp(
-      motionFloor +
-        this.smooth.energy * 0.52 * this.tuning.audioReactivity +
-        this.smooth.onset * 0.64 * this.tuning.audioReactivity +
-        this.smooth.bass * 0.22,
-      0.08,
-      1.3
+    const reactiveBase =
+      easedEnergy * 0.38 * reactivity +
+      easedBass * 0.28 * reactivity +
+      easedOnset * 0.26 * reactivity;
+    const burstResponse = easedPeak * (0.3 + 0.5 * peakIntensity);
+    const compressedReactive = reactiveBase / (1 + reactiveBase * 1.6);
+    const compressedBurst = burstResponse / (1 + burstResponse * 1.2);
+
+    this.motion.speed = clamp(
+      motionFloor + compressedReactive * 0.9 + compressedBurst * 0.45,
+      0,
+      1.5
     );
+    this.motion.detail = clamp(
+      motionFloor * 0.08 + easedMids * 0.08 + easedHighs * 0.11,
+      0,
+      0.45
+    );
+    this.motion.burst = clamp(compressedBurst, 0, 1);
 
     const silent = this.smooth.silence > 0.96;
-    const effectiveDrive = silent ? 0.03 : transportDrive;
+    const effectiveDrive = silent ? motionFloor * 0.08 : this.motion.speed;
     this.transportPhase = (this.transportPhase + effectiveDrive * dt * 0.95) % 1;
 
     this.raw.transport = effectiveDrive;
@@ -320,6 +338,9 @@ export class AudioEngine {
       transport: this.transport,
       onset: this.smooth.onset,
       silence: this.smooth.silence,
+      motionSpeed: this.motion.speed,
+      detailSpeed: this.motion.detail,
+      burstSpeed: this.motion.burst,
     };
 
     if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 400) {
@@ -350,6 +371,9 @@ export class AudioEngine {
       onset: clamp(this.smooth.onset, 0, 1),
       peak: clamp(this.smooth.peak, 0, 1),
       silence: clamp(this.smooth.silence, 0, 1),
+      motionSpeed: clamp(this.motion.speed, 0, 1.5),
+      detailSpeed: clamp(this.motion.detail, 0, 1),
+      burstSpeed: clamp(this.motion.burst, 0, 1),
     };
   }
 }

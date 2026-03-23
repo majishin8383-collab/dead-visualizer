@@ -215,18 +215,23 @@ void main(){
     a = abs(mod(a, foldAngle) - 0.5 * foldAngle);
     mp = vec2(cos(a), sin(a)) * r;
 
-    // Recursive zoom in fractal space; bounded looping avoids runaway speed.
-    float zoom = u_time * (0.22 + bass * 0.12 + energy * 0.05);
-    float zoomLoop = mod(zoom, 6.0) - 3.0;
+    // Slower, compressed tunnel pull: keeps hypnotic drift at moderate audio.
+    float easedEnergy = pow(sat(energy), 1.8);
+    float easedBass = pow(sat(bass), 1.5);
+    float easedPeak = pow(sat(u_audioB.y), 2.2);
+    float tunnelSpeed = 0.045 + easedEnergy * 0.08 + easedBass * 0.055 + easedPeak * 0.04;
+    float zoom = u_time * tunnelSpeed;
+    float zoomLoop = mod(zoom, 4.4) - 2.2;
     mp *= exp(zoomLoop);
 
-    float burst = exp(-u_burstAge * 3.2) * u_hardTransient;
-    float spiral = a + log(r + 1e-4) * (1.9 + bass * 1.1) - u_time * (0.34 + bass * 0.15);
-    float spiralTwist = 0.22 + mids * 0.28;
+    float burst = exp(-u_burstAge * 3.8) * u_hardTransient;
+    float spiral = a + log(r + 1e-4) * (1.35 + bass * 0.75) - u_time * (0.14 + easedBass * 0.08 + easedPeak * 0.08);
+    float spiralTwist = 0.14 + mids * 0.18 + easedPeak * 0.08;
     mp = rot(spiral * spiralTwist) * mp;
 
-    float distortAmt = 0.08 + mids * 0.22 + burst * 0.2;
-    vec2 q = mp + flowNoise(mp * (1.8 + highs * 1.4) + vec2(0.0, u_time * 0.1)) * distortAmt;
+    float distortAmt = 0.05 + mids * 0.14 + burst * 0.12;
+    float detailClock = u_time * (0.06 + highs * 0.08 + easedEnergy * 0.06);
+    vec2 q = mp + flowNoise(mp * (1.3 + highs * 0.95) + vec2(0.0, detailClock)) * distortAmt;
 
     float trapMin = 1e4;
     float trapAccum = 0.0;
@@ -238,14 +243,14 @@ void main(){
       float fi = float(i);
       float iterMask = step(fi, depthMix + 2.0);
       vec2 wobble = vec2(
-        sin(u_time * (0.18 + fi * 0.03) + q.y * (1.5 + fi * 0.2)),
-        cos(u_time * (0.16 + fi * 0.04) - q.x * (1.7 + fi * 0.18))
+        sin(u_time * (0.09 + fi * 0.015) + q.y * (1.0 + fi * 0.15)),
+        cos(u_time * (0.08 + fi * 0.018) - q.x * (1.15 + fi * 0.14))
       ) * (0.04 + highs * 0.07);
 
       q = abs(q + wobble);
       float invDen = max(dot(q, q), 0.06 + 0.03 * bass);
       q = q / invDen - vec2(0.72 + mids * 0.2, 0.66 + bass * 0.16);
-      q *= rot(0.14 + fi * (0.05 + mids * 0.02));
+      q *= rot(0.09 + fi * (0.028 + mids * 0.012));
 
       float l = length(q);
       trapMin = min(trapMin, l);
@@ -260,7 +265,7 @@ void main(){
     float spiralMask = sat(0.5 + 0.5 * sin(spiral * 6.0 + trapAccum * 2.5));
 
     // Structural color from fractal output (not flat gradients / ring masks).
-    float hueDrift = u_time * (0.22 + highs * 0.12) + burst * 1.1;
+    float hueDrift = u_time * (0.09 + highs * 0.06 + easedEnergy * 0.06) + burst * 0.65;
     vec3 col = vec3(
       sin(d * 3.2 + trapAccum * 1.8 + hueDrift),
       sin(d * 2.4 + petals * 1.2 + 2.0 + hueDrift * 0.9),

@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-131-title-update",
+  buildTag: "dv-132-control-range-and-speed-fix",
   devControls: {
     enabled: true,
   },
