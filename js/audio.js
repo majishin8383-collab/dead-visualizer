@@ -44,6 +44,7 @@ export class AudioEngine {
 
     this.transport = 0;
     this.transportPhase = 0;
+    this.motionPhase = 0;
 
     this.lastUpdateAt = performance.now();
     this.lastDebugAt = 0;
@@ -81,10 +82,19 @@ export class AudioEngine {
     };
 
     this.motion = {
-      renderSpeed: 0.12,
-      speed: 0.12,
+      pulseDrive: 0,
+      renderSpeed: 0,
+      speed: 0,
       detail: 0,
       burst: 0,
+    };
+    this.pulse = {
+      onsetEnvelope: 0,
+      grooveEnvelope: 0,
+      shortPulse: 0,
+      longPulse: 0,
+      phaseGate: 0,
+      bassDelta: 0,
     };
     this.tuning = {
       ...CONFIG.audio.tuning,
@@ -104,6 +114,9 @@ export class AudioEngine {
       motionSpeed: 0,
       detailSpeed: 0,
       burstSpeed: 0,
+      pulseDrive: 0,
+      energyLevel: 0,
+      motionPhaseAdvancing: false,
     };
   }
 
@@ -194,20 +207,22 @@ export class AudioEngine {
     this.lastUpdateAt = now;
 
     if (!this.ready || !this.analyser || !this.freqData || !this.timeData) {
-      this.transportPhase = (this.transportPhase + dt * 0.12) % 1;
       const idle = {
-        bass: 0.05,
-        lowMid: 0.05,
-        mids: 0.07,
-        highs: 0.08,
-        guitar: 0.04,
-        air: 0.07,
-        energy: 0.08,
-        transport: this.transportPhase,
-        renderSpeed: clamp(this.tuning.baselineTransport * 0.4, 0.04, 0.2),
-        onset: 0.01,
-        peak: 0.01,
-        silence: 0.85,
+        bass: 0,
+        lowMid: 0,
+        mids: 0,
+        highs: 0,
+        guitar: 0,
+        air: 0,
+        energy: 0,
+        energyLevel: 0,
+        pulseDrive: 0,
+        transport: 0,
+        renderSpeed: 0,
+        onset: 0,
+        peak: 0,
+        silence: 1,
+        motionPhaseAdvancing: false,
       };
       this.debugState = {
         initialized: this.ready,
@@ -217,9 +232,12 @@ export class AudioEngine {
         mids: idle.mids,
         highs: idle.highs,
         smoothedEnergy: idle.energy,
+        pulseDrive: 0,
+        energyLevel: 0,
         transport: idle.transport,
         onset: idle.onset,
         silence: idle.silence,
+        motionPhaseAdvancing: false,
       };
       return idle;
     }
@@ -292,35 +310,49 @@ export class AudioEngine {
     this.smooth.peak = followEnvelope(this.smooth.peak, this.raw.peak, 24 * smoothingMul, 5 * smoothingMul, dt);
     this.smooth.silence = followEnvelope(this.smooth.silence, this.raw.silence, 6 * smoothingMul, 3 * smoothingMul, dt);
 
-    const motionFloor = finiteOr(this.tuning.baselineTransport, 0.12);
     const safeEnergy = finiteOr(this.smooth.energy, 0);
     const safeOnset = finiteOr(this.smooth.onset, 0);
     const safePeak = finiteOr(this.smooth.peak, 0);
     const safeMids = finiteOr(this.smooth.mids, 0);
     const safeHighs = finiteOr(this.smooth.highs, 0);
-    this.motion.renderSpeed = clamp(
-      0.03 +
-        motionFloor * 0.32 +
-        safeEnergy * 0.42 * this.tuning.audioReactivity +
-        safeOnset * 0.34 * this.tuning.audioReactivity +
-        finiteOr(this.smooth.transport, 0) * 0.24 +
-        safePeak * (0.16 + 0.1 * this.tuning.peakIntensity),
-      0.04,
-      1.35
+    const bassDeltaRaw = Math.max(0, this.raw.bass - this.smooth.bass);
+    this.pulse.bassDelta = followEnvelope(this.pulse.bassDelta, bassDeltaRaw, 22, 7, dt);
+    const onsetSeed = clamp(safeOnset * 0.86 + this.pulse.bassDelta * 0.9 + safePeak * 0.12, 0, 1);
+    this.pulse.onsetEnvelope = followEnvelope(this.pulse.onsetEnvelope, onsetSeed, 26, 7, dt);
+    const grooveSeed = clamp(
+      this.smooth.bass * 0.52 +
+        this.smooth.lowMid * 0.2 +
+        this.smooth.mids * 0.14 +
+        safeOnset * 0.32 +
+        this.pulse.bassDelta * 0.16,
+      0,
+      1
     );
-    this.motion.speed = finiteOr(this.motion.renderSpeed, 0.12);
+    this.pulse.grooveEnvelope = followEnvelope(this.pulse.grooveEnvelope, grooveSeed, 8.5, 3.4, dt);
+    const pulseComposite = clamp(this.pulse.onsetEnvelope * 0.64 + this.pulse.grooveEnvelope * 0.36, 0, 1);
+    this.pulse.shortPulse = followEnvelope(this.pulse.shortPulse, pulseComposite, 12, 4.5, dt);
+    this.pulse.longPulse = followEnvelope(this.pulse.longPulse, pulseComposite, 2.8, 1.25, dt);
+    const silenceGate = clamp((1 - this.smooth.silence - 0.08) / 0.28, 0, 1);
+    const pulseDriveTarget = clamp(this.pulse.shortPulse * 0.76 + this.pulse.longPulse * 0.24, 0, 1.3) * silenceGate;
+
+    const motionAdvancing = pulseDriveTarget > 0.012;
+    this.pulse.phaseGate = followEnvelope(this.pulse.phaseGate, motionAdvancing ? 1 : 0, 20, 10, dt);
+    this.motion.pulseDrive = followEnvelope(this.motion.pulseDrive, pulseDriveTarget, 15, 4.8, dt);
+    this.motion.pulseDrive = clamp(this.motion.pulseDrive, 0, 1.3);
+    this.motion.renderSpeed = this.motion.pulseDrive;
+    this.motion.speed = this.motion.pulseDrive;
     this.motion.detail = clamp(
-      motionFloor * 0.08 + safeMids * 0.08 + safeHighs * 0.11,
+      safeMids * 0.08 + safeHighs * 0.11,
       0,
       0.45
     );
     const compressedBurst = clamp(safeOnset * 0.6 + safePeak * 0.4, 0, 1);
     this.motion.burst = clamp(compressedBurst, 0, 1);
 
-    const silent = this.smooth.silence > 0.96;
-    const effectiveDrive = clamp(finiteOr(silent ? motionFloor * 0.08 : this.motion.speed, motionFloor * 0.08), 0, 1.5);
-    const phaseSeed = finiteOr(this.transportPhase, 0);
-    this.transportPhase = (phaseSeed + effectiveDrive * dt * 0.95) % 1;
+    const effectiveDrive = clamp(finiteOr(this.motion.pulseDrive, 0), 0, 1.5);
+    const phaseSeed = finiteOr(this.motionPhase, 0);
+    this.motionPhase = phaseSeed + effectiveDrive * this.pulse.phaseGate * dt;
+    this.transportPhase = this.motionPhase % 1;
     this.transportPhase = finiteOr(this.transportPhase, 0);
 
     this.raw.transport = effectiveDrive;
@@ -336,12 +368,15 @@ export class AudioEngine {
       mids: this.smooth.mids,
       highs: this.smooth.highs,
       smoothedEnergy: this.smooth.energy,
+      pulseDrive: this.motion.pulseDrive,
+      energyLevel: this.smooth.energy,
       transport: this.transport,
       onset: this.smooth.onset,
       silence: this.smooth.silence,
       motionSpeed: this.motion.speed,
       detailSpeed: this.motion.detail,
       burstSpeed: this.motion.burst,
+      motionPhaseAdvancing: motionAdvancing,
     };
 
     if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 400) {
@@ -368,14 +403,17 @@ export class AudioEngine {
       guitar: clamp(this.smooth.guitar, 0, 1),
       air: clamp(this.smooth.air, 0, 1),
       energy: clamp(this.smooth.energy, 0, 1),
+      energyLevel: clamp(this.smooth.energy, 0, 1),
+      pulseDrive: clamp(this.motion.pulseDrive, 0, 1.5),
       transport: clamp(this.transport, 0, 1),
-      renderSpeed: clamp(this.motion.renderSpeed, 0.04, 1.35),
+      renderSpeed: clamp(this.motion.renderSpeed, 0, 1.35),
       onset: clamp(this.smooth.onset, 0, 1),
       peak: clamp(this.smooth.peak, 0, 1),
       silence: clamp(this.smooth.silence, 0, 1),
       motionSpeed: clamp(this.motion.speed, 0, 1.5),
       detailSpeed: clamp(this.motion.detail, 0, 1),
       burstSpeed: clamp(this.motion.burst, 0, 1),
+      motionPhaseAdvancing: motionAdvancing,
     };
   }
 }

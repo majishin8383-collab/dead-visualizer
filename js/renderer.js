@@ -19,7 +19,7 @@ export class Renderer {
     this.autoSwitchTimer = 0;
     this.autoCycleSeconds = CONFIG.modes.autoCycleSeconds;
 
-    this.masterTime = 0;
+    this.motionPhase = 0;
     this.lastTs = performance.now();
 
     this.running = false;
@@ -99,13 +99,13 @@ export class Renderer {
     this.lastTs = now;
 
     const audio = this.audioEngine.update();
-    const unifiedSpeed = clamp(audio.renderSpeed ?? 0.12, 0.04, 1.35);
-    const minimumFlow = 0.035;
-    this.masterTime += dt * Math.max(minimumFlow, unifiedSpeed);
+    const pulseDrive = clamp(audio.pulseDrive ?? 0, 0, 1.5);
+    const phaseStep = pulseDrive > 0.01 ? pulseDrive * dt : 0;
+    this.motionPhase += phaseStep;
     const events = this.eventsEngine.update(audio, dt);
 
     if (this.autoMode) {
-      this.autoSwitchTimer += dt * (0.55 + audio.energy * 0.7 + audio.onset * 0.6);
+      this.autoSwitchTimer += dt * (0.35 + pulseDrive * 0.65 + audio.onset * 0.35);
       if (this.autoSwitchTimer > this.autoCycleSeconds) {
         this.autoSwitchTimer = 0;
         this.mode = this.mode >= 4 ? 1 : this.mode + 1;
@@ -118,7 +118,7 @@ export class Renderer {
     try {
       this.visual.render({
         mode: this.mode,
-        time: this.masterTime,
+        time: this.motionPhase,
         dt,
         blackout: blackout.fade,
         audio,
@@ -134,15 +134,15 @@ export class Renderer {
       }
       this.visual.render?.({
         mode: this.mode,
-        time: this.masterTime,
+        time: this.motionPhase,
         blackout: blackout.fade,
         audio,
       });
       this.crashed = true;
     }
 
-    this.hudRefs.transportLabel.textContent = audio.transport.toFixed(2);
-    this.hudRefs.energyLabel.textContent = audio.energy.toFixed(2);
+    this.hudRefs.transportLabel.textContent = (audio.pulseDrive ?? audio.transport ?? 0).toFixed(2);
+    this.hudRefs.energyLabel.textContent = (audio.energyLevel ?? audio.energy ?? 0).toFixed(2);
     this.hudRefs.silenceLabel.textContent = audio.silence.toFixed(2);
 
     if (this.hudRefs.audioDebugLabel) {
@@ -156,9 +156,12 @@ export class Renderer {
           ` mids:${dbg.mids.toFixed(2)}` +
           ` highs:${dbg.highs.toFixed(2)}` +
           ` smE:${dbg.smoothedEnergy.toFixed(2)}` +
+          ` pd:${dbg.pulseDrive.toFixed(2)}` +
+          ` eL:${dbg.energyLevel.toFixed(2)}` +
           ` tr:${dbg.transport.toFixed(2)}` +
           ` on:${dbg.onset.toFixed(2)}` +
-          ` sil:${dbg.silence.toFixed(2)}`;
+          ` sil:${dbg.silence.toFixed(2)}` +
+          ` ph:${dbg.motionPhaseAdvancing ? "Y" : "N"}`;
       }
     }
   }
