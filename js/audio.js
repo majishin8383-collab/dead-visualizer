@@ -77,12 +77,7 @@ export class AudioEngine {
     };
 
     this.motion = {
-      speed: 0,
-      detail: 0,
-      burst: 0,
-    };
-    this.tuning = {
-      ...CONFIG.audio.tuning,
+      renderSpeed: 0.12,
     };
     this.tuning = {
       ...CONFIG.audio.tuning,
@@ -202,6 +197,7 @@ export class AudioEngine {
         air: 0.07,
         energy: 0.08,
         transport: this.transportPhase,
+        renderSpeed: clamp(this.tuning.baselineTransport * 0.4, 0.04, 0.2),
         onset: 0.01,
         peak: 0.01,
         silence: 0.85,
@@ -289,28 +285,16 @@ export class AudioEngine {
     this.smooth.peak = followEnvelope(this.smooth.peak, this.raw.peak, 24 * smoothingMul, 5 * smoothingMul, dt);
     this.smooth.silence = followEnvelope(this.smooth.silence, this.raw.silence, 6 * smoothingMul, 3 * smoothingMul, dt);
 
-    const motionFloor = Math.max(0, this.tuning.baselineTransport);
-    const reactivity = Math.max(0, this.tuning.audioReactivity);
-    const peakIntensity = Math.max(0, this.tuning.peakIntensity);
-    const easedEnergy = Math.pow(clamp(this.smooth.energy, 0, 1), 1.85);
-    const easedBass = Math.pow(clamp(this.smooth.bass, 0, 1), 1.65);
-    const easedOnset = Math.pow(clamp(this.smooth.onset, 0, 1), 1.4);
-    const easedPeak = Math.pow(clamp(this.smooth.peak, 0, 1), 2.2);
-    const easedMids = Math.pow(clamp(this.smooth.mids, 0, 1), 1.25);
-    const easedHighs = Math.pow(clamp(this.smooth.highs, 0, 1), 1.35);
-
-    const reactiveBase =
-      easedEnergy * 0.38 * reactivity +
-      easedBass * 0.28 * reactivity +
-      easedOnset * 0.26 * reactivity;
-    const burstResponse = easedPeak * (0.3 + 0.5 * peakIntensity);
-    const compressedReactive = reactiveBase / (1 + reactiveBase * 1.6);
-    const compressedBurst = burstResponse / (1 + burstResponse * 1.2);
-
-    this.motion.speed = clamp(
-      motionFloor + compressedReactive * 0.9 + compressedBurst * 0.45,
-      0,
-      1.5
+    const motionFloor = this.tuning.baselineTransport;
+    this.motion.renderSpeed = clamp(
+      0.03 +
+        motionFloor * 0.32 +
+        this.smooth.energy * 0.42 * this.tuning.audioReactivity +
+        this.smooth.onset * 0.34 * this.tuning.audioReactivity +
+        this.smooth.transport * 0.24 +
+        this.smooth.peak * (0.16 + 0.1 * this.tuning.peakIntensity),
+      0.04,
+      1.35
     );
     this.motion.detail = clamp(
       motionFloor * 0.08 + easedMids * 0.08 + easedHighs * 0.11,
@@ -368,6 +352,7 @@ export class AudioEngine {
       air: clamp(this.smooth.air, 0, 1),
       energy: clamp(this.smooth.energy, 0, 1),
       transport: clamp(this.transport, 0, 1),
+      renderSpeed: clamp(this.motion.renderSpeed, 0.04, 1.35),
       onset: clamp(this.smooth.onset, 0, 1),
       peak: clamp(this.smooth.peak, 0, 1),
       silence: clamp(this.smooth.silence, 0, 1),

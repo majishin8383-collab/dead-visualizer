@@ -89,7 +89,7 @@ vec3 liquidPalette(float t){
 
 // Mode 1 liquid engine: kept as source-of-truth renderer.
 vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float transport){
-  float t = u_time * (0.22 + energy * 0.36) + transport * 0.035;
+  float t = u_time * (0.16 + energy * 0.24) + transport * 0.02;
   vec2 globalDrift = vec2(0.08, -0.06) * u_time + vec2(transport * 0.0024, -transport * 0.0018);
   vec2 base = p * 0.88 + globalDrift;
 
@@ -144,10 +144,10 @@ vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float ener
   vec3 col = mix(baseCol, riverCol, riverMask * (0.52 + mids * 0.22));
   col = mix(col, foamCol, foldMask * (0.22 + highs * 0.18));
 
-  float shimmer = smoothstep(0.6, 0.95, fbm(q2 * 11.0 + vec2(u_time * 1.7, -u_time * 1.5)));
+  float shimmer = smoothstep(0.6, 0.95, fbm(q2 * 11.0 + vec2(u_time * 1.1, -u_time * 0.95)));
   col += foamCol * shimmer * highs * 0.12;
 
-  float micro = fbm(q2 * 14.5 + vec2(1.2 * u_time, -1.0 * u_time)) - 0.5;
+  float micro = fbm(q2 * 14.5 + vec2(0.78 * u_time, -0.65 * u_time)) - 0.5;
   col *= 0.9 + body * 0.56 + micro * 0.16;
 
   float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
@@ -195,8 +195,9 @@ void main(){
   float energy = u_audioA.w;
   float onset = u_audioB.x;
   float guitarDrive = clamp(u_audioB.w, 0.0, 1.0);
-  float transportScale = mix(24.0, 120.0, guitarDrive);
-  float transport = u_audioB.z * transportScale;
+  float transportNorm = clamp(u_audioB.z, 0.0, 1.0);
+  float transportScale = mix(14.0, 72.0, guitarDrive);
+  float transport = transportNorm * transportScale;
 
   vec3 scene;
   if (u_mode == 1) {
@@ -215,23 +216,19 @@ void main(){
     a = abs(mod(a, foldAngle) - 0.5 * foldAngle);
     mp = vec2(cos(a), sin(a)) * r;
 
-    // Slower, compressed tunnel pull: keeps hypnotic drift at moderate audio.
-    float easedEnergy = pow(sat(energy), 1.8);
-    float easedBass = pow(sat(bass), 1.5);
-    float easedPeak = pow(sat(u_audioB.y), 2.2);
-    float tunnelSpeed = 0.045 + easedEnergy * 0.08 + easedBass * 0.055 + easedPeak * 0.04;
-    float zoom = u_time * tunnelSpeed;
-    float zoomLoop = mod(zoom, 4.4) - 2.2;
+    // Recursive zoom in fractal space; bounded looping avoids runaway speed.
+    float mode2Speed = 0.72 + transportNorm * 0.78 + onset * 0.25;
+    float zoom = u_time * mode2Speed * (0.18 + bass * 0.09 + energy * 0.04);
+    float zoomLoop = mod(zoom, 6.0) - 3.0;
     mp *= exp(zoomLoop);
 
-    float burst = exp(-u_burstAge * 3.8) * u_hardTransient;
-    float spiral = a + log(r + 1e-4) * (1.35 + bass * 0.75) - u_time * (0.14 + easedBass * 0.08 + easedPeak * 0.08);
-    float spiralTwist = 0.14 + mids * 0.18 + easedPeak * 0.08;
+    float burst = exp(-u_burstAge * 3.2) * u_hardTransient;
+    float spiral = a + log(r + 1e-4) * (1.9 + bass * 1.1) - u_time * mode2Speed * (0.28 + bass * 0.11);
+    float spiralTwist = 0.22 + mids * 0.28;
     mp = rot(spiral * spiralTwist) * mp;
 
-    float distortAmt = 0.05 + mids * 0.14 + burst * 0.12;
-    float detailClock = u_time * (0.06 + highs * 0.08 + easedEnergy * 0.06);
-    vec2 q = mp + flowNoise(mp * (1.3 + highs * 0.95) + vec2(0.0, detailClock)) * distortAmt;
+    float distortAmt = 0.08 + mids * 0.22 + burst * 0.2;
+    vec2 q = mp + flowNoise(mp * (1.8 + highs * 1.4) + vec2(0.0, u_time * 0.08 * mode2Speed)) * distortAmt;
 
     float trapMin = 1e4;
     float trapAccum = 0.0;
@@ -265,7 +262,7 @@ void main(){
     float spiralMask = sat(0.5 + 0.5 * sin(spiral * 6.0 + trapAccum * 2.5));
 
     // Structural color from fractal output (not flat gradients / ring masks).
-    float hueDrift = u_time * (0.09 + highs * 0.06 + easedEnergy * 0.06) + burst * 0.65;
+    float hueDrift = u_time * mode2Speed * (0.18 + highs * 0.1) + burst * 1.1;
     vec3 col = vec3(
       sin(d * 3.2 + trapAccum * 1.8 + hueDrift),
       sin(d * 2.4 + petals * 1.2 + 2.0 + hueDrift * 0.9),
@@ -372,7 +369,7 @@ vec3 liquidPalette(float t){
 }
 
 vec3 modeLiquid(vec2 p, float bass, float mids, float highs, float energy, float onset, float transport){
-  float t = u_time * (0.22 + energy * 0.36) + transport * 0.035;
+  float t = u_time * (0.16 + energy * 0.24) + transport * 0.02;
   vec2 globalDrift = vec2(0.08, -0.06) * u_time + vec2(transport * 0.0024, -transport * 0.0018);
   vec2 base = p * 0.88 + globalDrift;
 
@@ -427,10 +424,10 @@ vec3 modeLiquid(vec2 p, float bass, float mids, float highs, float energy, float
   vec3 col = mix(baseCol, riverCol, riverMask * (0.52 + mids * 0.22));
   col = mix(col, foamCol, foldMask * (0.22 + highs * 0.18));
 
-  float shimmer = smoothstep(0.6, 0.95, fbm(q2 * 11.0 + vec2(u_time * 1.7, -u_time * 1.5)));
+  float shimmer = smoothstep(0.6, 0.95, fbm(q2 * 11.0 + vec2(u_time * 1.1, -u_time * 0.95)));
   col += foamCol * shimmer * highs * 0.12;
 
-  float micro = fbm(q2 * 14.5 + vec2(1.2 * u_time, -1.0 * u_time)) - 0.5;
+  float micro = fbm(q2 * 14.5 + vec2(0.78 * u_time, -0.65 * u_time)) - 0.5;
   col *= 0.9 + body * 0.56 + micro * 0.16;
 
   float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
@@ -452,8 +449,9 @@ void main(){
   float energy = u_audioA.w;
   float onset = u_audioB.x;
   float guitarDrive = clamp(u_audioB.w, 0.0, 1.0);
-  float transportScale = mix(24.0, 120.0, guitarDrive);
-  float transport = u_audioB.z * transportScale;
+  float transportNorm = clamp(u_audioB.z, 0.0, 1.0);
+  float transportScale = mix(14.0, 72.0, guitarDrive);
+  float transport = transportNorm * transportScale;
 
   outColor = vec4(modeLiquid(p, bass, mids, highs, energy, onset, transport), 1.0);
 }`;
