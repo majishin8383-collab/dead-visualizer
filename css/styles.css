@@ -211,3 +211,128 @@ canvas {
   background: #fff;
   color: #000;
 }
+
+#devPanel {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 30;
+  width: min(92vw, 360px);
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  pointer-events: auto;
+  background: rgba(14, 14, 14, 0.82);
+  color: #f2f2f2;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+}
+
+#devPanel .dev-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+#devPanel .dev-header button {
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+#devPanelContent {
+  padding: 10px 12px 12px;
+}
+
+#devPanelContent.collapsed {
+  display: none;
+}
+
+.dev-section {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.dev-section:last-child {
+  border-bottom: 0;
+  margin-bottom: 0;
+  padding-bottom: 4px;
+}
+
+.dev-section h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.dev-section label,
+.dev-section select,
+.dev-section input,
+.dev-section button {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.dev-section label {
+  margin: 6px 0 4px;
+  font-size: 12px;
+}
+
+.dev-section input[type="range"] {
+  margin-bottom: 4px;
+}
+
+.dev-section select,
+.dev-section input[type="number"],
+.dev-section button {
+  min-height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  padding: 8px;
+}
+
+.dev-section input[type="checkbox"] {
+  display: inline-block;
+  width: auto;
+  margin-right: 6px;
+}
+
+.dev-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+
+@media (max-width: 700px) {
+  #overlay {
+    padding: 8px;
+  }
+
+  #hud {
+    font-size: 12px;
+    max-width: 72vw;
+    padding: 8px;
+  }
+
+  #devPanel {
+    width: min(96vw, 440px);
+    left: 2vw;
+    right: 2vw;
+    top: auto;
+    bottom: 8px;
+    max-height: 58vh;
+  }
+
+  .dev-buttons {
+    grid-template-columns: 1fr;
+  }
+}

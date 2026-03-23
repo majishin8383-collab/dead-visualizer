@@ -78,6 +78,11 @@ export class AudioEngine {
 
     this.motion = {
       speed: 0,
+      detail: 0,
+      burst: 0,
+    };
+    this.tuning = {
+      ...CONFIG.audio.tuning,
     };
 
     this.debugState = {
@@ -91,6 +96,9 @@ export class AudioEngine {
       transport: 0,
       onset: 0,
       silence: 1,
+      motionSpeed: 0,
+      detailSpeed: 0,
+      burstSpeed: 0,
     };
   }
 
@@ -120,7 +128,7 @@ export class AudioEngine {
     this.source = this.ctx.createMediaStreamSource(this.stream);
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = CONFIG.audio.fftSize;
-    this.analyser.smoothingTimeConstant = CONFIG.audio.smoothingTimeConstant;
+    this.analyser.smoothingTimeConstant = this.tuning.smoothing;
 
     this.source.connect(this.analyser);
 
@@ -159,6 +167,20 @@ export class AudioEngine {
 
   getDebugState() {
     return { ...this.debugState };
+  }
+
+  setTuning(partial) {
+    this.tuning = {
+      ...this.tuning,
+      ...partial,
+    };
+    if (this.analyser) {
+      this.analyser.smoothingTimeConstant = clamp(this.tuning.smoothing, 0, 0.95);
+    }
+  }
+
+  getTuning() {
+    return { ...this.tuning };
   }
 
   update() {
@@ -220,14 +242,15 @@ export class AudioEngine {
 
     const targetGain = clamp(0.45 / Math.max(0.06, baseEnergy), 0.9, 2.8);
     this.calibratedGain = followEnvelope(this.calibratedGain, targetGain, 1.6, 0.5, dt);
+    const tunedGain = this.calibratedGain * this.tuning.micSensitivity;
 
-    this.raw.bass = normalizeBand(rawBass * this.calibratedGain, 0.03, 0.82);
-    this.raw.lowMid = normalizeBand(rawLowMid * this.calibratedGain, 0.03, 0.78);
-    this.raw.mids = normalizeBand(rawMids * this.calibratedGain, 0.03, 0.8);
-    this.raw.highs = normalizeBand(rawHighs * this.calibratedGain, 0.02, 0.75);
-    this.raw.air = normalizeBand(rawAir * this.calibratedGain, 0.02, 0.75);
-    this.raw.guitar = normalizeBand(rawGuitar * this.calibratedGain, 0.03, 0.8);
-    this.raw.rms = normalizeBand(rms * this.calibratedGain, this.noiseFloor * 0.85, 0.4);
+    this.raw.bass = normalizeBand(rawBass * tunedGain, 0.03, 0.82);
+    this.raw.lowMid = normalizeBand(rawLowMid * tunedGain, 0.03, 0.78);
+    this.raw.mids = normalizeBand(rawMids * tunedGain, 0.03, 0.8);
+    this.raw.highs = normalizeBand(rawHighs * tunedGain, 0.02, 0.75);
+    this.raw.air = normalizeBand(rawAir * tunedGain, 0.02, 0.75);
+    this.raw.guitar = normalizeBand(rawGuitar * tunedGain, 0.03, 0.8);
+    this.raw.rms = normalizeBand(rms * tunedGain, this.noiseFloor * 0.85, 0.4);
 
     this.raw.energy = clamp(
       this.raw.bass * 0.34 +
@@ -240,41 +263,61 @@ export class AudioEngine {
     );
 
     const positiveDelta = Math.max(0, this.raw.energy - this.lastEnergy);
-    this.raw.onset = clamp(positiveDelta * 5.5 + Math.max(0, this.raw.rms - 0.25) * 0.25, 0, 1);
-    this.raw.peak = clamp(peakNorm * 0.55 + this.raw.onset * 0.45, 0, 1);
+    this.raw.onset = clamp((positiveDelta * 5.5 + Math.max(0, this.raw.rms - 0.25) * 0.25) * this.tuning.audioReactivity, 0, 1);
+    this.raw.peak = clamp((peakNorm * 0.55 + this.raw.onset * 0.45) * this.tuning.peakIntensity, 0, 1);
     this.raw.silence = clamp(1 - this.raw.energy * 1.35 - this.raw.rms * 0.35, 0, 1);
+    if (this.raw.energy < this.tuning.noiseGate) {
+      this.raw.energy = 0;
+      this.raw.onset = 0;
+      this.raw.peak = 0;
+      this.raw.silence = 1;
+    }
     this.lastEnergy = this.raw.energy;
 
-    this.smooth.bass = followEnvelope(this.smooth.bass, this.raw.bass, 12, 5, dt);
-    this.smooth.lowMid = followEnvelope(this.smooth.lowMid, this.raw.lowMid, 11, 4.5, dt);
-    this.smooth.mids = followEnvelope(this.smooth.mids, this.raw.mids, 12, 5, dt);
-    this.smooth.highs = followEnvelope(this.smooth.highs, this.raw.highs, 14, 6.2, dt);
-    this.smooth.air = followEnvelope(this.smooth.air, this.raw.air, 14, 6.8, dt);
-    this.smooth.guitar = followEnvelope(this.smooth.guitar, this.raw.guitar, 12, 5, dt);
-    this.smooth.energy = followEnvelope(this.smooth.energy, this.raw.energy, 8.5, 2.8, dt);
-    this.smooth.onset = followEnvelope(this.smooth.onset, this.raw.onset, 28, 7, dt);
-    this.smooth.peak = followEnvelope(this.smooth.peak, this.raw.peak, 24, 5, dt);
-    this.smooth.silence = followEnvelope(this.smooth.silence, this.raw.silence, 6, 3, dt);
+    const smoothingMul = clamp(1.2 - this.tuning.smoothing, 0.2, 2.0);
+    this.smooth.bass = followEnvelope(this.smooth.bass, this.raw.bass, 12 * smoothingMul, 5 * smoothingMul, dt);
+    this.smooth.lowMid = followEnvelope(this.smooth.lowMid, this.raw.lowMid, 11 * smoothingMul, 4.5 * smoothingMul, dt);
+    this.smooth.mids = followEnvelope(this.smooth.mids, this.raw.mids, 12 * smoothingMul, 5 * smoothingMul, dt);
+    this.smooth.highs = followEnvelope(this.smooth.highs, this.raw.highs, 14 * smoothingMul, 6.2 * smoothingMul, dt);
+    this.smooth.air = followEnvelope(this.smooth.air, this.raw.air, 14 * smoothingMul, 6.8 * smoothingMul, dt);
+    this.smooth.guitar = followEnvelope(this.smooth.guitar, this.raw.guitar, 12 * smoothingMul, 5 * smoothingMul, dt);
+    this.smooth.energy = followEnvelope(this.smooth.energy, this.raw.energy, 8.5 * smoothingMul, 2.8 * smoothingMul, dt);
+    this.smooth.onset = followEnvelope(this.smooth.onset, this.raw.onset, 28 * smoothingMul, 7 * smoothingMul, dt);
+    this.smooth.peak = followEnvelope(this.smooth.peak, this.raw.peak, 24 * smoothingMul, 5 * smoothingMul, dt);
+    this.smooth.silence = followEnvelope(this.smooth.silence, this.raw.silence, 6 * smoothingMul, 3 * smoothingMul, dt);
 
-    const motionFloor = 0.13;
+    const motionFloor = Math.max(0, this.tuning.baselineTransport);
+    const reactivity = Math.max(0, this.tuning.audioReactivity);
+    const peakIntensity = Math.max(0, this.tuning.peakIntensity);
+    const easedEnergy = Math.pow(clamp(this.smooth.energy, 0, 1), 1.85);
+    const easedBass = Math.pow(clamp(this.smooth.bass, 0, 1), 1.65);
+    const easedOnset = Math.pow(clamp(this.smooth.onset, 0, 1), 1.4);
+    const easedPeak = Math.pow(clamp(this.smooth.peak, 0, 1), 2.2);
+    const easedMids = Math.pow(clamp(this.smooth.mids, 0, 1), 1.25);
+    const easedHighs = Math.pow(clamp(this.smooth.highs, 0, 1), 1.35);
+
+    const reactiveBase =
+      easedEnergy * 0.38 * reactivity +
+      easedBass * 0.28 * reactivity +
+      easedOnset * 0.26 * reactivity;
+    const burstResponse = easedPeak * (0.3 + 0.5 * peakIntensity);
+    const compressedReactive = reactiveBase / (1 + reactiveBase * 1.6);
+    const compressedBurst = burstResponse / (1 + burstResponse * 1.2);
+
     this.motion.speed = clamp(
-      motionFloor +
-        this.smooth.energy * 0.6 +
-        this.smooth.bass * 0.28 +
-        this.smooth.onset * 0.42 +
-        this.smooth.highs * 0.08,
-      0.08,
-      1.6
+      motionFloor + compressedReactive * 0.9 + compressedBurst * 0.45,
+      0,
+      1.5
     );
-
-    const transportDrive = clamp(
-      0.18 + this.smooth.energy * 0.52 + this.smooth.onset * 0.64 + this.smooth.bass * 0.22,
-      0.08,
-      1.3
+    this.motion.detail = clamp(
+      motionFloor * 0.08 + easedMids * 0.08 + easedHighs * 0.11,
+      0,
+      0.45
     );
+    this.motion.burst = clamp(compressedBurst, 0, 1);
 
     const silent = this.smooth.silence > 0.96;
-    const effectiveDrive = silent ? 0.03 : transportDrive;
+    const effectiveDrive = silent ? motionFloor * 0.08 : this.motion.speed;
     this.transportPhase = (this.transportPhase + effectiveDrive * dt * 0.95) % 1;
 
     this.raw.transport = effectiveDrive;
@@ -292,6 +335,9 @@ export class AudioEngine {
       transport: this.transport,
       onset: this.smooth.onset,
       silence: this.smooth.silence,
+      motionSpeed: this.motion.speed,
+      detailSpeed: this.motion.detail,
+      burstSpeed: this.motion.burst,
     };
 
     if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 400) {
@@ -322,6 +368,9 @@ export class AudioEngine {
       onset: clamp(this.smooth.onset, 0, 1),
       peak: clamp(this.smooth.peak, 0, 1),
       silence: clamp(this.smooth.silence, 0, 1),
+      motionSpeed: clamp(this.motion.speed, 0, 1.5),
+      detailSpeed: clamp(this.motion.detail, 0, 1),
+      burstSpeed: clamp(this.motion.burst, 0, 1),
     };
   }
 }

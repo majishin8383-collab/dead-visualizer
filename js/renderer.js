@@ -13,6 +13,7 @@ export class Renderer {
     this.mode = CONFIG.modes.defaultMode;
     this.autoMode = false;
     this.autoSwitchTimer = 0;
+    this.autoCycleSeconds = CONFIG.modes.autoCycleSeconds;
 
     this.masterTime = 0;
     this.lastTs = performance.now();
@@ -65,6 +66,15 @@ export class Renderer {
     this.autoSwitchTimer = 0;
   }
 
+  setAutoMode(enabled) {
+    this.autoMode = !!enabled;
+    this.autoSwitchTimer = 0;
+  }
+
+  setAutoCycleSeconds(seconds) {
+    this.autoCycleSeconds = Math.max(3, Number(seconds) || CONFIG.modes.autoCycleSeconds);
+  }
+
   updateHudMode() {
     this.hudRefs.modeLabel.textContent = `${CONFIG.modes.names[this.mode] || "Unknown"} (${CONFIG.buildTag} · ${this.engineName})`;
   }
@@ -90,7 +100,7 @@ export class Renderer {
 
     if (this.autoMode) {
       this.autoSwitchTimer += dt * (0.55 + audio.energy * 0.7 + audio.onset * 0.6);
-      if (this.autoSwitchTimer > CONFIG.modes.autoCycleSeconds) {
+      if (this.autoSwitchTimer > this.autoCycleSeconds) {
         this.autoSwitchTimer = 0;
         this.mode = this.mode >= 4 ? 1 : this.mode + 1;
         this.updateHudMode();
