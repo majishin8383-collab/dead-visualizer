@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-144-adaptive-noise-floor",
+  buildTag: "dv-145-motion-gated-by-baseline",
   devControls: {
     enabled: true,
   },

@@ -139,8 +139,7 @@ export class Renderer {
     this.silenceTimer = Math.max(0, (now - this.lastActiveSignalAt) / 1000);
 
     const pulseDrive = clamp(audio.pulseDrive ?? 0, 0, 1.5);
-    const phaseStep = pulseDrive > 0.01 ? pulseDrive * dt : 0;
-    this.motionPhase += phaseStep;
+    this.motionPhase = Number.isFinite(audio.motionTime) ? audio.motionTime : this.motionPhase;
     const events = this.eventsEngine.update(audio, dt);
 
     if (this.autoMode) {
@@ -179,7 +178,7 @@ export class Renderer {
       this.crashed = true;
     }
 
-    this.hudRefs.transportLabel.textContent = (audio.pulseDrive ?? audio.transport ?? 0).toFixed(2);
+    this.hudRefs.transportLabel.textContent = (audio.transport ?? 0).toFixed(2);
     this.hudRefs.energyLabel.textContent = (audio.energyLevel ?? audio.energy ?? 0).toFixed(2);
     this.hudRefs.silenceLabel.textContent = audio.silence.toFixed(2);
 
