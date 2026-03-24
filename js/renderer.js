@@ -20,6 +20,7 @@ export class Renderer {
     this.autoCycleSeconds = CONFIG.modes.autoCycleSeconds;
 
     this.motionPhase = 0;
+    this.lastMotionPhase = 0;
     this.lastTs = performance.now();
     this.lastActiveSignalAt = this.lastTs;
     this.silenceTimer = 0;
@@ -29,6 +30,7 @@ export class Renderer {
     this.forcedFallback = false;
 
     this.usingFallback = false;
+    this.lastMotionDiagAt = 0;
     this.modeChangeListeners = [];
     this.baseTuning = {
       ...CONFIG.audio.tuning,
@@ -192,6 +194,8 @@ export class Renderer {
 
     const pulseDrive = clamp(audio.pulseDrive ?? 0, 0, 1.5);
     this.motionPhase = Number.isFinite(audio.motionTime) ? audio.motionTime : this.motionPhase;
+    const motionDelta = this.motionPhase - this.lastMotionPhase;
+    this.lastMotionPhase = this.motionPhase;
     const events = this.eventsEngine.update(audio, dt);
 
     if (this.autoMode) {
@@ -208,6 +212,7 @@ export class Renderer {
       this.visual.render({
         mode: this.mode,
         time: this.motionPhase,
+        motionEnabled: !!audio.motionEnabled,
         dt,
         blackout: blackout.fade,
         audio,
@@ -224,6 +229,7 @@ export class Renderer {
       this.visual.render?.({
         mode: this.mode,
         time: this.motionPhase,
+        motionEnabled: !!audio.motionEnabled,
         blackout: blackout.fade,
         audio,
       });
@@ -240,7 +246,10 @@ export class Renderer {
         this.hudRefs.audioDebugLabel.textContent =
           `init:${dbg.initialized ? "Y" : "N"}` +
           ` live:${dbg.live ? "Y" : "N"}` +
+          ` obsE:${(dbg.observedEnergy ?? 0).toFixed(2)}` +
           ` rawE:${dbg.rawEnergy.toFixed(2)}` +
+          ` sigE:${(dbg.signalEnergy ?? 0).toFixed(2)}` +
+          ` gatE:${(dbg.gatedEnergy ?? 0).toFixed(2)}` +
           ` bass:${dbg.bass.toFixed(2)}` +
           ` mids:${dbg.mids.toFixed(2)}` +
           ` highs:${dbg.highs.toFixed(2)}` +
@@ -253,8 +262,46 @@ export class Renderer {
           ` on:${dbg.onset.toFixed(2)}` +
           ` sil:${dbg.silence.toFixed(2)}` +
           ` act:${dbg.activeAboveBaseline ? "Y" : "N"}` +
-          ` ph:${dbg.motionPhaseAdvancing ? "Y" : "N"}`;
+          ` ph:${dbg.motionPhaseAdvancing ? "Y" : "N"}` +
+          ` me:${dbg.motionEnabled ? "Y" : "N"}` +
+          ` hs:${dbg.hardSilence ? "Y" : "N"}` +
+          ` fr:${dbg.motionFrozen ? "Y" : "N"}` +
+          ` md:${motionDelta.toFixed(4)}` +
+          ` mt:${(dbg.motionTime ?? this.motionPhase).toFixed(2)}` +
+          ` mode:${this.mode}` +
+          ` b:${(audio.burstSpeed ?? 0).toFixed(2)}` +
+          ` rs:${(audio.renderSpeed ?? 0).toFixed(2)}`;
       }
+    }
+
+    if (now - this.lastMotionDiagAt > 600) {
+      this.lastMotionDiagAt = now;
+      console.debug("[motion-diag]", {
+        mode: this.mode,
+        masterTime: Number(this.motionPhase.toFixed(4)),
+        masterTimeDelta: Number(motionDelta.toFixed(5)),
+        dt: Number(dt.toFixed(4)),
+        transport: Number((audio.transport ?? 0).toFixed(4)),
+        pulseDrive: Number((audio.pulseDrive ?? 0).toFixed(4)),
+        renderSpeed: Number((audio.renderSpeed ?? 0).toFixed(4)),
+        detailSpeed: Number((audio.detailSpeed ?? 0).toFixed(4)),
+        burst: Number((audio.burstSpeed ?? 0).toFixed(4)),
+        onset: Number((audio.onset ?? 0).toFixed(4)),
+        peak: Number((audio.peak ?? 0).toFixed(4)),
+        rawEnergy: Number((audio.energy ?? 0).toFixed(4)),
+        trueSignal: Number((audio.trueSignal ?? 0).toFixed(4)),
+        aboveBaseline: !!audio.activeAboveBaseline,
+        motionPhaseAdvancing: !!audio.motionPhaseAdvancing,
+        motionEnabled: !!audio.motionEnabled,
+        hardSilence: !!audio.hardSilence,
+        motionFrozen: !!audio.motionFrozen,
+        audioDriven: {
+          masterTime: true,
+          shaderUTime: true,
+          blackoutFade: true,
+          mode2Burst: true,
+        },
+      });
     }
   }
 }

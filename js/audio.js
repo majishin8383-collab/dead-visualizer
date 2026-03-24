@@ -45,6 +45,10 @@ export class AudioEngine {
     this.transport = 0;
     this.transportPhase = 0;
     this.motionPhase = 0;
+    this.motionEnabled = false;
+    this.hardSilence = true;
+    this.motionFrozen = true;
+    this.motionEnableHold = 0;
 
     this.lastUpdateAt = performance.now();
     this.lastDebugAt = 0;
@@ -107,7 +111,10 @@ export class AudioEngine {
     this.debugState = {
       initialized: false,
       live: false,
+      observedEnergy: 0,
       rawEnergy: 0,
+      signalEnergy: 0,
+      gatedEnergy: 0,
       bass: 0,
       mids: 0,
       highs: 0,
@@ -121,6 +128,9 @@ export class AudioEngine {
       pulseDrive: 0,
       energyLevel: 0,
       motionPhaseAdvancing: false,
+      motionEnabled: false,
+      hardSilence: true,
+      motionFrozen: true,
       noiseFloor: 0,
       trueSignal: 0,
       activeAboveBaseline: false,
@@ -231,11 +241,17 @@ export class AudioEngine {
         peak: 0,
         silence: 1,
         motionPhaseAdvancing: false,
+        motionEnabled: false,
+        hardSilence: true,
+        motionFrozen: true,
       };
       this.debugState = {
         initialized: this.ready,
         live: this.live,
+        observedEnergy: 0,
         rawEnergy: idle.energy,
+        signalEnergy: 0,
+        gatedEnergy: idle.energy,
         bass: idle.bass,
         mids: idle.mids,
         highs: idle.highs,
@@ -246,6 +262,9 @@ export class AudioEngine {
         onset: idle.onset,
         silence: idle.silence,
         motionPhaseAdvancing: false,
+        motionEnabled: false,
+        hardSilence: true,
+        motionFrozen: true,
         noiseFloor: 0,
         trueSignal: 0,
         activeAboveBaseline: false,
@@ -319,6 +338,25 @@ export class AudioEngine {
     this.activeAboveBaseline = this.trueSignal >= activeAboveFloor;
     const signalCeiling = clamp(adaptiveCfg.signalCeiling ?? 0.2, 0.06, 0.45);
     this.raw.energy = clamp(this.trueSignal / signalCeiling, 0, 1);
+    const signalEnergy = this.raw.energy;
+    const hardSilenceEnter = Math.max(activeAboveFloor * 0.6, 0.012);
+    const hardSilenceExit = Math.max(activeAboveFloor * 1.35, 0.025);
+    const sustainEnterSeconds = 0.16;
+    const sustainExitSeconds = 0.12;
+    const shouldEnableMotion = this.trueSignal >= hardSilenceExit;
+    const shouldDisableMotion = this.trueSignal <= hardSilenceEnter;
+    if (shouldEnableMotion) {
+      this.motionEnableHold = Math.min(sustainExitSeconds, this.motionEnableHold + dt);
+      if (this.motionEnableHold >= sustainExitSeconds) {
+        this.motionEnabled = true;
+      }
+    } else if (shouldDisableMotion) {
+      this.motionEnableHold = Math.max(-sustainEnterSeconds, this.motionEnableHold - dt);
+      if (this.motionEnableHold <= -sustainEnterSeconds) {
+        this.motionEnabled = false;
+      }
+    }
+    this.hardSilence = !this.motionEnabled;
 
     const positiveDelta = Math.max(0, this.raw.energy - this.lastEnergy);
     this.raw.onset = clamp((positiveDelta * 5.5 + Math.max(0, this.raw.rms - 0.25) * 0.25) * this.tuning.audioReactivity, 0, 1);
@@ -335,6 +373,7 @@ export class AudioEngine {
       this.raw.silence = 1;
     }
     this.lastEnergy = this.raw.energy;
+    const gatedEnergy = this.raw.energy;
 
     const smoothingMul = clamp(1.2 - this.tuning.smoothing, 0.2, 2.0);
     this.smooth.bass = followEnvelope(this.smooth.bass, this.raw.bass, 12 * smoothingMul, 5 * smoothingMul, dt);
@@ -376,7 +415,7 @@ export class AudioEngine {
     const activityGate = this.pulse.motionGate;
     let pulseDriveTarget =
       clamp(this.pulse.shortPulse * 0.76 + this.pulse.longPulse * 0.24, 0, 1.3) * silenceGate * activityGate;
-    const hardIdle = this.trueSignal <= activeAboveFloor * 0.5;
+    const hardIdle = this.hardSilence;
     if (hardIdle) {
       pulseDriveTarget = 0;
       this.pulse.motionGate = 0;
@@ -400,6 +439,7 @@ export class AudioEngine {
     const effectiveDrive = clamp(finiteOr(this.motion.pulseDrive, 0), 0, 1.5);
     const phaseSeed = finiteOr(this.motionPhase, 0);
     this.motionPhase = hardIdle ? phaseSeed : phaseSeed + effectiveDrive * this.pulse.phaseGate * dt;
+    this.motionFrozen = hardIdle || effectiveDrive <= 1e-6 || this.pulse.phaseGate <= 1e-6;
     this.transportPhase = this.motionPhase % 1;
     this.transportPhase = finiteOr(this.transportPhase, 0);
 
@@ -423,7 +463,10 @@ export class AudioEngine {
     this.debugState = {
       initialized: this.ready,
       live: this.live,
+      observedEnergy,
       rawEnergy: this.raw.energy,
+      signalEnergy,
+      gatedEnergy,
       bass: reactiveBass,
       mids: reactiveMids,
       highs: reactiveHighs,
@@ -437,6 +480,9 @@ export class AudioEngine {
       detailSpeed: this.motion.detail,
       burstSpeed: this.motion.burst,
       motionPhaseAdvancing: motionAdvancing,
+      motionEnabled: this.motionEnabled,
+      hardSilence: this.hardSilence,
+      motionFrozen: this.motionFrozen,
       noiseFloor: this.baselineEnergy,
       trueSignal: this.trueSignal,
       activeAboveBaseline: this.activeAboveBaseline,
@@ -448,7 +494,10 @@ export class AudioEngine {
       console.debug("[audio-debug]", {
         initialized: this.debugState.initialized,
         live: this.debugState.live,
+        observedEnergy: Number(this.debugState.observedEnergy.toFixed(3)),
         rawEnergy: Number(this.debugState.rawEnergy.toFixed(3)),
+        signalEnergy: Number(this.debugState.signalEnergy.toFixed(3)),
+        gatedEnergy: Number(this.debugState.gatedEnergy.toFixed(3)),
         bass: Number(this.debugState.bass.toFixed(3)),
         mids: Number(this.debugState.mids.toFixed(3)),
         highs: Number(this.debugState.highs.toFixed(3)),
@@ -459,6 +508,9 @@ export class AudioEngine {
         noiseFloor: Number(this.debugState.noiseFloor.toFixed(3)),
         trueSignal: Number(this.debugState.trueSignal.toFixed(3)),
         activeAboveBaseline: this.debugState.activeAboveBaseline,
+        motionEnabled: this.debugState.motionEnabled,
+        hardSilence: this.debugState.hardSilence,
+        motionFrozen: this.debugState.motionFrozen,
       });
     }
 
@@ -485,6 +537,9 @@ export class AudioEngine {
       detailSpeed: clamp(this.motion.detail, 0, 1),
       burstSpeed: clamp(this.motion.burst, 0, 1),
       motionPhaseAdvancing: motionAdvancing,
+      motionEnabled: this.motionEnabled,
+      hardSilence: this.hardSilence,
+      motionFrozen: this.motionFrozen,
     };
   }
 }
