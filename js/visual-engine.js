@@ -169,7 +169,7 @@ export class VisualEngine {
     return { transientPulse, hardTransient, burstAge: this.burstAge };
   }
 
-  renderDirectToScreen(mode, time, dt, blackout, audio, transientState) {
+  renderDirectToScreen(mode, time, motionEnabled, dt, blackout, audio, transientState) {
     const gl = this.gl;
     const safeMode = this.modeFailure.has(mode) ? 1 : mode;
 
@@ -185,6 +185,7 @@ export class VisualEngine {
 
     gl.uniform2f(gl.getUniformLocation(this.sceneProgram, "u_resolution"), this.canvas.width, this.canvas.height);
     gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_time"), time);
+    gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_motionEnabled"), motionEnabled ? 1 : 0);
     gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_dt"), dt);
     gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_blackout"), Math.min(0.92, blackout));
     gl.uniform1i(gl.getUniformLocation(this.sceneProgram, "u_mode"), safeMode);
@@ -197,7 +198,7 @@ export class VisualEngine {
   }
 
   render(params) {
-    const { mode, time, dt, blackout, audio, events } = params;
+    const { mode, time, motionEnabled, dt, blackout, audio, events } = params;
 
     const transientState = this.updateTransientState(audio.energy, dt);
 
@@ -215,6 +216,7 @@ export class VisualEngine {
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
       gl.uniform2f(gl.getUniformLocation(this.liquidProgram, "u_resolution"), this.canvas.width, this.canvas.height);
       gl.uniform1f(gl.getUniformLocation(this.liquidProgram, "u_time"), time);
+      gl.uniform1f(gl.getUniformLocation(this.liquidProgram, "u_motionEnabled"), motionEnabled ? 1 : 0);
       gl.uniform4f(gl.getUniformLocation(this.liquidProgram, "u_audioA"), audio.bass, audio.mids, audio.highs, audio.energy);
       gl.uniform4f(gl.getUniformLocation(this.liquidProgram, "u_audioB"), audio.onset, audio.peak, audio.transport, audio.guitar);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -232,6 +234,7 @@ export class VisualEngine {
 
       gl.uniform2f(gl.getUniformLocation(this.sceneProgram, "u_resolution"), this.canvas.width, this.canvas.height);
       gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_time"), time);
+      gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_motionEnabled"), motionEnabled ? 1 : 0);
       gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_dt"), dt);
       gl.uniform1f(gl.getUniformLocation(this.sceneProgram, "u_blackout"), Math.min(0.95, blackout));
       gl.uniform1i(gl.getUniformLocation(this.sceneProgram, "u_mode"), safeMode);
@@ -267,7 +270,7 @@ export class VisualEngine {
       this.modeFailure.add(mode);
       console.error(`Mode ${mode} render failed; attempting direct screen fallback.`, err);
       try {
-        this.renderDirectToScreen(mode, time, dt, blackout, audio, transientState);
+        this.renderDirectToScreen(mode, time, motionEnabled, dt, blackout, audio, transientState);
       } catch (directErr) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.clearColor(0.02, 0.02, 0.03, 1);
