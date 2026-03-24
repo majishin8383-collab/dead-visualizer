@@ -27,6 +27,8 @@ const autoCycleDuration = document.getElementById("autoCycleDuration");
 const blackoutButton = document.getElementById("blackoutButton");
 const reconnectButton = document.getElementById("reconnectButton");
 const fsDevButton = document.getElementById("fsDevButton");
+const saveModeSettingsButton = document.getElementById("saveModeSettingsButton");
+const saveModeSettingsStatus = document.getElementById("saveModeSettingsStatus");
 const micSensitivity = document.getElementById("micSensitivity");
 const noiseGate = document.getElementById("noiseGate");
 const smoothing = document.getElementById("smoothing");
@@ -50,6 +52,41 @@ const renderer = new Renderer(canvas, audioEngine, eventsEngine, {
   silenceLabel,
   audioDebugLabel,
 });
+
+const tuningBindings = {
+  micSensitivity: { input: micSensitivity, output: micSensitivityValue },
+  noiseGate: { input: noiseGate, output: noiseGateValue },
+  smoothing: { input: smoothing, output: smoothingValue },
+  baselineTransport: { input: baselineTransport, output: baselineTransportValue },
+  audioReactivity: { input: audioReactivity, output: audioReactivityValue },
+  peakIntensity: { input: peakIntensity, output: peakIntensityValue },
+};
+
+function setModeSettingsStatus(text = "", kind = "") {
+  if (!saveModeSettingsStatus) return;
+  saveModeSettingsStatus.textContent = text;
+  saveModeSettingsStatus.dataset.kind = kind;
+}
+
+function syncDevSlidersFromTuning(tuning) {
+  if (!tuning) return;
+  Object.entries(tuningBindings).forEach(([key, refs]) => {
+    const { input, output } = refs;
+    if (!input || !output) return;
+    const value = Number(tuning[key] ?? 0);
+    input.value = String(value);
+    output.textContent = value.toFixed(2);
+  });
+}
+
+function setModeAndSync(mode) {
+  renderer.setMode(mode);
+  if (modeSelect) {
+    modeSelect.value = String(renderer.mode);
+  }
+  syncDevSlidersFromTuning(renderer.getCurrentModeActiveTuning());
+  setModeSettingsStatus(`Loaded mode ${renderer.mode} settings`, "loaded");
+}
 
 function enterFullscreen() {
   const elem = document.documentElement;
@@ -89,13 +126,12 @@ micButton.addEventListener("click", async () => {
 
 function bindRange(input, output, key) {
   if (!input || !output) return;
-  const tuning = audioEngine.getTuning();
-  input.value = tuning[key];
-  output.textContent = Number(tuning[key]).toFixed(2);
+
   input.addEventListener("input", () => {
     const value = Number(input.value);
     output.textContent = value.toFixed(2);
-    audioEngine.setTuning({ [key]: value });
+    renderer.setCurrentModeLiveTuning({ [key]: value });
+    setModeSettingsStatus(`Unsaved changes for mode ${renderer.mode}`, "dirty");
   });
 }
 
@@ -111,7 +147,23 @@ if (devPanel) {
   bindRange(peakIntensity, peakIntensityValue, "peakIntensity");
 
   modeSelect.value = String(renderer.mode);
-  modeSelect.addEventListener("change", () => renderer.setMode(Number(modeSelect.value)));
+  syncDevSlidersFromTuning(renderer.getCurrentModeActiveTuning());
+
+  modeSelect.addEventListener("change", () => setModeAndSync(Number(modeSelect.value)));
+
+  renderer.onModeChange(() => {
+    modeSelect.value = String(renderer.mode);
+    syncDevSlidersFromTuning(renderer.getCurrentModeActiveTuning());
+    setModeSettingsStatus(`Loaded mode ${renderer.mode} settings`, "loaded");
+  });
+
+  if (saveModeSettingsButton) {
+    saveModeSettingsButton.addEventListener("click", () => {
+      renderer.saveCurrentModeTuning();
+      syncDevSlidersFromTuning(renderer.getCurrentModeActiveTuning());
+      setModeSettingsStatus(`Saved settings for mode ${renderer.mode}`, "saved");
+    });
+  }
 
   autoToggle.checked = renderer.autoMode;
   autoToggle.addEventListener("change", () => renderer.setAutoMode(autoToggle.checked));
@@ -145,10 +197,10 @@ if (devPanel) {
 window.addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
 
-  if (k === "1") renderer.setMode(1);
-  if (k === "2") renderer.setMode(2);
-  if (k === "3") renderer.setMode(3);
-  if (k === "4") renderer.setMode(4);
+  if (k === "1") setModeAndSync(1);
+  if (k === "2") setModeAndSync(2);
+  if (k === "3") setModeAndSync(3);
+  if (k === "4") setModeAndSync(4);
   if (k === "a") renderer.toggleAutoMode();
   if (k === " ") {
     e.preventDefault();

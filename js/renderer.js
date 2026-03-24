@@ -29,7 +29,12 @@ export class Renderer {
     this.forcedFallback = false;
 
     this.usingFallback = false;
-    this.defaultMicSensitivity = this.audioEngine.getTuning?.().micSensitivity ?? CONFIG.audio.tuning.micSensitivity;
+    this.modeChangeListeners = [];
+    this.baseTuning = {
+      ...CONFIG.audio.tuning,
+      ...(this.audioEngine.getTuning?.() ?? {}),
+    };
+    this.savedModeTunings = this.initializeSavedModeTunings();
 
     try {
       this.visual = new VisualEngine(canvas);
@@ -41,7 +46,75 @@ export class Renderer {
 
     window.addEventListener("resize", () => this.resize());
     this.resize();
+
+    this.applySavedTuningForMode(this.mode);
     this.updateHudMode();
+  }
+
+  initializeSavedModeTunings() {
+    const configured = CONFIG.modes?.tuningByMode ?? {};
+    const modes = Object.keys(CONFIG.modes?.names ?? {});
+    const saved = {};
+    for (const modeKey of modes) {
+      saved[modeKey] = {
+        ...this.baseTuning,
+        ...(configured[modeKey] ?? {}),
+      };
+    }
+    return saved;
+  }
+
+  getSavedTuningForMode(mode) {
+    const key = String(mode);
+    return {
+      ...this.baseTuning,
+      ...(this.savedModeTunings[key] ?? {}),
+    };
+  }
+
+  applySavedTuningForMode(mode) {
+    if (!this.audioEngine?.setTuning) return;
+    const saved = this.getSavedTuningForMode(mode);
+    this.audioEngine.setTuning(saved);
+  }
+
+  setCurrentModeLiveTuning(partial) {
+    if (!this.audioEngine?.setTuning) return;
+    this.audioEngine.setTuning(partial);
+  }
+
+  saveCurrentModeTuning() {
+    if (!this.audioEngine?.getTuning) return;
+    this.savedModeTunings[String(this.mode)] = this.audioEngine.getTuning();
+  }
+
+  getCurrentModeActiveTuning() {
+    if (!this.audioEngine?.getTuning) return this.getSavedTuningForMode(this.mode);
+    return this.audioEngine.getTuning();
+  }
+
+  onModeChange(listener) {
+    if (typeof listener !== "function") return () => {};
+    this.modeChangeListeners.push(listener);
+    return () => {
+      this.modeChangeListeners = this.modeChangeListeners.filter((fn) => fn !== listener);
+    };
+  }
+
+  notifyModeChange(prevMode) {
+    const payload = {
+      mode: this.mode,
+      prevMode,
+      tuning: this.getCurrentModeActiveTuning(),
+      savedTuning: this.getSavedTuningForMode(this.mode),
+    };
+    this.modeChangeListeners.forEach((listener) => {
+      try {
+        listener(payload);
+      } catch (err) {
+        console.error("Mode change listener failed", err);
+      }
+    });
   }
 
   resize() {
@@ -51,31 +124,10 @@ export class Renderer {
   setMode(mode) {
     const prevMode = this.mode;
     this.mode = mode;
-    this.applyModeTuning(mode, prevMode);
+    this.applySavedTuningForMode(mode);
     this.visual.setMode?.(mode);
     this.updateHudMode();
-  }
-
-  applyModeTuning(nextMode, prevMode) {
-    if (!this.audioEngine?.getTuning || !this.audioEngine?.setTuning) return;
-    const currentSensitivity = this.audioEngine.getTuning().micSensitivity;
-
-    if (prevMode !== 2 && nextMode !== 2) {
-      this.defaultMicSensitivity = currentSensitivity;
-      return;
-    }
-
-    if (nextMode === 2) {
-      if (prevMode !== 2) {
-        this.defaultMicSensitivity = currentSensitivity;
-      }
-      this.audioEngine.setTuning({ micSensitivity: 0.5 });
-      return;
-    }
-
-    if (prevMode === 2) {
-      this.audioEngine.setTuning({ micSensitivity: this.defaultMicSensitivity });
-    }
+    this.notifyModeChange(prevMode);
   }
 
   activateFallback(reason = "runtime") {
