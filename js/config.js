@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-145-motion-gated-by-baseline",
+  buildTag: "dv-146-mode-settings-ui-fix",
   devControls: {
     enabled: true,
   },
@@ -12,6 +12,40 @@ export const CONFIG = {
     },
     defaultMode: 1,
     autoCycleSeconds: 18,
+    tuningByMode: {
+      1: {
+        micSensitivity: 1.0,
+        noiseGate: 0.03,
+        smoothing: 0.18,
+        baselineTransport: 0.12,
+        audioReactivity: 1.0,
+        peakIntensity: 1.0,
+      },
+      2: {
+        micSensitivity: 0.5,
+        noiseGate: 0.03,
+        smoothing: 0.18,
+        baselineTransport: 0.12,
+        audioReactivity: 1.0,
+        peakIntensity: 1.0,
+      },
+      3: {
+        micSensitivity: 1.0,
+        noiseGate: 0.03,
+        smoothing: 0.18,
+        baselineTransport: 0.12,
+        audioReactivity: 1.0,
+        peakIntensity: 1.0,
+      },
+      4: {
+        micSensitivity: 1.0,
+        noiseGate: 0.03,
+        smoothing: 0.18,
+        baselineTransport: 0.12,
+        audioReactivity: 1.0,
+        peakIntensity: 1.0,
+      },
+    },
   },
 
   // Forward design for rare solo-driven iconography.
