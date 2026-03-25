@@ -256,6 +256,7 @@ export class Renderer {
           ` smE:${dbg.smoothedEnergy.toFixed(2)}` +
           ` nf:${dbg.noiseFloor.toFixed(2)}` +
           ` ts:${dbg.trueSignal.toFixed(2)}` +
+          ` rc:${(dbg.rhythmConfidence ?? 0).toFixed(2)}` +
           ` pd:${dbg.pulseDrive.toFixed(2)}` +
           ` eL:${dbg.energyLevel.toFixed(2)}` +
           ` tr:${dbg.transport.toFixed(2)}` +

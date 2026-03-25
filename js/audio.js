@@ -219,6 +219,91 @@ export class AudioEngine {
     return { ...this.tuning };
   }
 
+  evaluateMusicStructure({ dt, onset, pulse, bass, lowMid, mids, highs, trueSignal, activeAboveFloor }) {
+    const spectrum = [bass, lowMid, mids, highs];
+    let flux = 0;
+    if (this.music.prevSpectrum) {
+      for (let i = 0; i < spectrum.length; i++) {
+        flux += Math.abs(spectrum[i] - this.music.prevSpectrum[i]);
+      }
+      flux /= spectrum.length;
+    }
+    this.music.prevSpectrum = spectrum;
+
+    this.music.history.push({
+      onset: clamp(onset, 0, 1),
+      pulse: clamp(pulse, 0, 1),
+      flux: clamp(flux, 0, 1),
+    });
+    if (this.music.history.length > 96) this.music.history.shift();
+
+    const n = this.music.history.length;
+    if (n < 24) {
+      this.music.confidence = followEnvelope(this.music.confidence, 0, 4, 2.5, dt);
+      this.music.active = false;
+      this.music.hold = Math.max(0, this.music.hold - dt);
+      return { confidence: this.music.confidence, active: this.music.active };
+    }
+
+    const onsetSeries = this.music.history.map((h) => h.onset);
+    const pulseSeries = this.music.history.map((h) => h.pulse);
+    const fluxSeries = this.music.history.map((h) => h.flux);
+    const eventCount = onsetSeries.filter((v) => v > 0.09).length;
+    const eventDensity = eventCount / n;
+    const pulseMean = pulseSeries.reduce((sum, v) => sum + v, 0) / n;
+    const fluxMean = fluxSeries.reduce((sum, v) => sum + v, 0) / n;
+
+    let maxCorr = 0;
+    for (let lag = 6; lag <= 24; lag++) {
+      if (lag >= n) break;
+      let dot = 0;
+      let sumA = 0;
+      let sumB = 0;
+      for (let i = lag; i < n; i++) {
+        const a = onsetSeries[i];
+        const b = onsetSeries[i - lag];
+        dot += a * b;
+        sumA += a * a;
+        sumB += b * b;
+      }
+      const corr = dot / Math.max(1e-5, Math.sqrt(sumA * sumB));
+      if (corr > maxCorr) maxCorr = corr;
+    }
+
+    const signalStrength = clamp(trueSignal / Math.max(1e-5, activeAboveFloor * 3.6), 0, 1);
+    const densityScore = clamp((eventDensity - 0.07) / 0.25, 0, 1);
+    const regularityScore = clamp((maxCorr - 0.2) / 0.55, 0, 1);
+    const fluxScore = clamp((fluxMean - 0.014) / 0.09, 0, 1);
+    const pulseScore = clamp((pulseMean - 0.05) / 0.32, 0, 1);
+
+    let targetConfidence =
+      densityScore * 0.32 +
+      regularityScore * 0.3 +
+      fluxScore * 0.22 +
+      pulseScore * 0.16;
+    targetConfidence *= signalStrength;
+
+    const randomSpikePenalty = eventCount <= 2 && Math.max(...onsetSeries) > 0.35 ? 0.28 : 0;
+    targetConfidence = clamp(targetConfidence - randomSpikePenalty, 0, 1);
+
+    this.music.confidence = followEnvelope(this.music.confidence, targetConfidence, 5, 1.8, dt);
+
+    const activate = this.music.confidence > 0.56 && eventCount >= 4 && fluxMean > 0.012;
+    const stayActive = this.music.confidence > 0.42 && eventCount >= 3;
+    if (activate) {
+      this.music.active = true;
+      this.music.hold = 0.85;
+    } else {
+      this.music.hold = Math.max(0, this.music.hold - dt);
+      this.music.active = stayActive || this.music.hold > 0;
+    }
+
+    return {
+      confidence: this.music.confidence,
+      active: this.music.active,
+    };
+  }
+
   update() {
     const now = performance.now();
     const dt = clamp((now - this.lastUpdateAt) / 1000, 1 / 240, 0.1);
@@ -409,6 +494,19 @@ export class AudioEngine {
     const pulseComposite = clamp(this.pulse.onsetEnvelope * 0.64 + this.pulse.grooveEnvelope * 0.36, 0, 1);
     this.pulse.shortPulse = followEnvelope(this.pulse.shortPulse, pulseComposite, 12, 4.5, dt);
     this.pulse.longPulse = followEnvelope(this.pulse.longPulse, pulseComposite, 2.8, 1.25, dt);
+    const musicStructure = this.evaluateMusicStructure({
+      dt,
+      onset: safeOnset,
+      pulse: pulseComposite,
+      bass: this.smooth.bass,
+      lowMid: this.smooth.lowMid,
+      mids: this.smooth.mids,
+      highs: this.smooth.highs,
+      trueSignal: this.trueSignal,
+      activeAboveFloor,
+    });
+    this.motionEnabled = this.signalActive && musicStructure.active;
+    this.hardSilence = !this.motionEnabled;
     const silenceGate = clamp((1 - this.smooth.silence - 0.08) / 0.28, 0, 1);
     const activityGateTarget = this.activeAboveBaseline ? 1 : 0;
     this.pulse.motionGate = followEnvelope(this.pulse.motionGate, activityGateTarget, 8, 5.5, dt);
