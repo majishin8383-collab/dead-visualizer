@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-148-music-structure-activation",
+  buildTag: "dv-147-hard-silence-freeze",
   devControls: {
     enabled: true,
   },

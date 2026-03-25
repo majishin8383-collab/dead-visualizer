@@ -265,7 +265,6 @@ export class Renderer {
           ` act:${dbg.activeAboveBaseline ? "Y" : "N"}` +
           ` ph:${dbg.motionPhaseAdvancing ? "Y" : "N"}` +
           ` me:${dbg.motionEnabled ? "Y" : "N"}` +
-          ` ma:${dbg.musicActive ? "Y" : "N"}` +
           ` hs:${dbg.hardSilence ? "Y" : "N"}` +
           ` fr:${dbg.motionFrozen ? "Y" : "N"}` +
           ` md:${motionDelta.toFixed(4)}` +
@@ -292,9 +291,6 @@ export class Renderer {
         peak: Number((audio.peak ?? 0).toFixed(4)),
         rawEnergy: Number((audio.energy ?? 0).toFixed(4)),
         trueSignal: Number((audio.trueSignal ?? 0).toFixed(4)),
-        rhythmConfidence: Number((audio.rhythmConfidence ?? 0).toFixed(4)),
-        musicActive: !!audio.musicActive,
-        signalActive: !!audio.signalActive,
         aboveBaseline: !!audio.activeAboveBaseline,
         motionPhaseAdvancing: !!audio.motionPhaseAdvancing,
         motionEnabled: !!audio.motionEnabled,

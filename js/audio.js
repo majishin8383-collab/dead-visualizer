@@ -48,14 +48,7 @@ export class AudioEngine {
     this.motionEnabled = false;
     this.hardSilence = true;
     this.motionFrozen = true;
-    this.signalActive = false;
-    this.music = {
-      active: false,
-      confidence: 0,
-      hold: 0,
-      history: [],
-      prevSpectrum: null,
-    };
+    this.motionEnableHold = 0;
 
     this.lastUpdateAt = performance.now();
     this.lastDebugAt = 0;
@@ -138,9 +131,6 @@ export class AudioEngine {
       motionEnabled: false,
       hardSilence: true,
       motionFrozen: true,
-      signalActive: false,
-      rhythmConfidence: 0,
-      musicActive: false,
       noiseFloor: 0,
       trueSignal: 0,
       activeAboveBaseline: false,
@@ -339,9 +329,6 @@ export class AudioEngine {
         motionEnabled: false,
         hardSilence: true,
         motionFrozen: true,
-        signalActive: false,
-        rhythmConfidence: 0,
-        musicActive: false,
       };
       this.debugState = {
         initialized: this.ready,
@@ -363,9 +350,6 @@ export class AudioEngine {
         motionEnabled: false,
         hardSilence: true,
         motionFrozen: true,
-        signalActive: false,
-        rhythmConfidence: 0,
-        musicActive: false,
         noiseFloor: 0,
         trueSignal: 0,
         activeAboveBaseline: false,
@@ -440,13 +424,24 @@ export class AudioEngine {
     const signalCeiling = clamp(adaptiveCfg.signalCeiling ?? 0.2, 0.06, 0.45);
     this.raw.energy = clamp(this.trueSignal / signalCeiling, 0, 1);
     const signalEnergy = this.raw.energy;
-    const signalActiveEnter = Math.max(activeAboveFloor * 1.2, 0.02);
-    const signalActiveExit = Math.max(activeAboveFloor * 0.7, 0.012);
-    if (this.trueSignal >= signalActiveEnter) {
-      this.signalActive = true;
-    } else if (this.trueSignal <= signalActiveExit) {
-      this.signalActive = false;
+    const hardSilenceEnter = Math.max(activeAboveFloor * 0.6, 0.012);
+    const hardSilenceExit = Math.max(activeAboveFloor * 1.35, 0.025);
+    const sustainEnterSeconds = 0.16;
+    const sustainExitSeconds = 0.12;
+    const shouldEnableMotion = this.trueSignal >= hardSilenceExit;
+    const shouldDisableMotion = this.trueSignal <= hardSilenceEnter;
+    if (shouldEnableMotion) {
+      this.motionEnableHold = Math.min(sustainExitSeconds, this.motionEnableHold + dt);
+      if (this.motionEnableHold >= sustainExitSeconds) {
+        this.motionEnabled = true;
+      }
+    } else if (shouldDisableMotion) {
+      this.motionEnableHold = Math.max(-sustainEnterSeconds, this.motionEnableHold - dt);
+      if (this.motionEnableHold <= -sustainEnterSeconds) {
+        this.motionEnabled = false;
+      }
     }
+    this.hardSilence = !this.motionEnabled;
 
     const positiveDelta = Math.max(0, this.raw.energy - this.lastEnergy);
     this.raw.onset = clamp((positiveDelta * 5.5 + Math.max(0, this.raw.rms - 0.25) * 0.25) * this.tuning.audioReactivity, 0, 1);
@@ -586,9 +581,6 @@ export class AudioEngine {
       motionEnabled: this.motionEnabled,
       hardSilence: this.hardSilence,
       motionFrozen: this.motionFrozen,
-      signalActive: this.signalActive,
-      rhythmConfidence: this.music.confidence,
-      musicActive: this.music.active,
       noiseFloor: this.baselineEnergy,
       trueSignal: this.trueSignal,
       activeAboveBaseline: this.activeAboveBaseline,
@@ -617,9 +609,6 @@ export class AudioEngine {
         motionEnabled: this.debugState.motionEnabled,
         hardSilence: this.debugState.hardSilence,
         motionFrozen: this.debugState.motionFrozen,
-        signalActive: this.debugState.signalActive,
-        rhythmConfidence: Number(this.debugState.rhythmConfidence.toFixed(3)),
-        musicActive: this.debugState.musicActive,
       });
     }
 
@@ -649,9 +638,6 @@ export class AudioEngine {
       motionEnabled: this.motionEnabled,
       hardSilence: this.hardSilence,
       motionFrozen: this.motionFrozen,
-      signalActive: this.signalActive,
-      rhythmConfidence: this.music.confidence,
-      musicActive: this.music.active,
     };
   }
 }
