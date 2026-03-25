@@ -4,6 +4,7 @@ out vec4 outColor;
 
 uniform vec2 u_resolution;
 uniform float u_time;
+uniform float u_motionEnabled;
 uniform float u_dt;
 uniform float u_blackout;
 uniform int u_mode;
@@ -89,8 +90,9 @@ vec3 liquidPalette(float t){
 
 // Mode 1 liquid engine: kept as source-of-truth renderer.
 vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float transport){
-  float t = u_time * (0.16 + energy * 0.24) + transport * 0.02;
-  vec2 globalDrift = vec2(0.08, -0.06) * u_time + vec2(transport * 0.0024, -transport * 0.0018);
+  float motionTime = u_time * u_motionEnabled;
+  float t = motionTime * (0.16 + energy * 0.24) + transport * 0.02;
+  vec2 globalDrift = vec2(0.08, -0.06) * motionTime + vec2(transport * 0.0024, -transport * 0.0018);
   vec2 base = p * 0.88 + globalDrift;
 
   vec2 flowLarge = flowNoise(base * 0.62 + vec2(t * 0.10, -t * 0.08));
@@ -129,7 +131,7 @@ vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float ener
   float riverMask = smoothstep(0.46, 0.82, dyeRivers + ridges * 0.26);
   float foldMask = smoothstep(0.52, 0.9, body * 0.64 + eddies * 0.36 + bass * 0.18);
 
-  float hueSpin = u_time * (0.028 + energy * 0.036 + mids * 0.021) + transport * 0.0016;
+  float hueSpin = motionTime * (0.028 + energy * 0.036 + mids * 0.021) + transport * 0.0016;
   float bassWarm = smoothstep(0.14, 0.9, bass);
   float warmShift = bassWarm * (0.13 + onset * 0.1);
 
@@ -144,10 +146,10 @@ vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float ener
   vec3 col = mix(baseCol, riverCol, riverMask * (0.52 + mids * 0.22));
   col = mix(col, foamCol, foldMask * (0.22 + highs * 0.18));
 
-  float shimmer = smoothstep(0.6, 0.95, fbm(q2 * 11.0 + vec2(u_time * 1.1, -u_time * 0.95)));
+  float shimmer = smoothstep(0.6, 0.95, fbm(q2 * 11.0 + vec2(motionTime * 1.1, -motionTime * 0.95)));
   col += foamCol * shimmer * highs * 0.12;
 
-  float micro = fbm(q2 * 14.5 + vec2(0.78 * u_time, -0.65 * u_time)) - 0.5;
+  float micro = fbm(q2 * 14.5 + vec2(0.78 * motionTime, -0.65 * motionTime)) - 0.5;
   col *= 0.9 + body * 0.56 + micro * 0.16;
 
   float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
@@ -198,6 +200,7 @@ void main(){
   float transportNorm = clamp(u_audioB.z, 0.0, 1.0);
   float transportScale = mix(14.0, 72.0, guitarDrive);
   float transport = transportNorm * transportScale;
+  float motionTime = u_time * u_motionEnabled;
 
   vec3 scene;
   if (u_mode == 1) {
@@ -217,18 +220,18 @@ void main(){
     mp = vec2(cos(a), sin(a)) * r;
 
     // Recursive zoom in fractal space; bounded looping avoids runaway speed.
-    float mode2Speed = 0.72 + transportNorm * 0.78 + onset * 0.25;
-    float zoom = u_time * mode2Speed * (0.18 + bass * 0.09 + energy * 0.04);
+    float mode2Speed = (transportNorm * 1.0 + onset * 0.36 + energy * 0.18) * u_motionEnabled;
+    float zoom = motionTime * mode2Speed * (0.18 + bass * 0.09 + energy * 0.04);
     float zoomLoop = mod(zoom, 6.0) - 3.0;
     mp *= exp(zoomLoop);
 
     float burst = exp(-u_burstAge * 3.2) * u_hardTransient;
-    float spiral = a + log(r + 1e-4) * (1.9 + bass * 1.1) - u_time * mode2Speed * (0.28 + bass * 0.11);
+    float spiral = a + log(r + 1e-4) * (1.9 + bass * 1.1) - motionTime * mode2Speed * (0.28 + bass * 0.11);
     float spiralTwist = 0.22 + mids * 0.28;
     mp = rot(spiral * spiralTwist) * mp;
 
     float distortAmt = 0.08 + mids * 0.22 + burst * 0.2;
-    vec2 q = mp + flowNoise(mp * (1.8 + highs * 1.4) + vec2(0.0, u_time * 0.08 * mode2Speed)) * distortAmt;
+    vec2 q = mp + flowNoise(mp * (1.8 + highs * 1.4) + vec2(0.0, motionTime * 0.08 * mode2Speed)) * distortAmt;
 
     float trapMin = 1e4;
     float trapAccum = 0.0;
@@ -240,8 +243,8 @@ void main(){
       float fi = float(i);
       float iterMask = step(fi, depthMix + 2.0);
       vec2 wobble = vec2(
-        sin(u_time * (0.09 + fi * 0.015) + q.y * (1.0 + fi * 0.15)),
-        cos(u_time * (0.08 + fi * 0.018) - q.x * (1.15 + fi * 0.14))
+        sin(motionTime * (0.09 + fi * 0.015) + q.y * (1.0 + fi * 0.15)),
+        cos(motionTime * (0.08 + fi * 0.018) - q.x * (1.15 + fi * 0.14))
       ) * (0.04 + highs * 0.07);
 
       q = abs(q + wobble);
@@ -262,7 +265,7 @@ void main(){
     float spiralMask = sat(0.5 + 0.5 * sin(spiral * 6.0 + trapAccum * 2.5));
 
     // Structural color from fractal output (not flat gradients / ring masks).
-    float hueDrift = u_time * mode2Speed * (0.18 + highs * 0.1) + burst * 1.1;
+    float hueDrift = motionTime * mode2Speed * (0.18 + highs * 0.1) + burst * 1.1;
     vec3 col = vec3(
       sin(d * 3.2 + trapAccum * 1.8 + hueDrift),
       sin(d * 2.4 + petals * 1.2 + 2.0 + hueDrift * 0.9),
@@ -281,8 +284,8 @@ void main(){
     float edge = sat(structure * 0.8 + centerRegen * 0.45 + spiralMask * 0.3);
     // Remove legacy darkening floor that muted saturated detail in the portal shell.
     col *= 0.26 + edge * 1.24;
-    col += centerRegen * mix(violet, cool, 0.5 + 0.5 * sin(u_time * 0.6 + trapAccum * 1.4));
-    col += portalCore * (0.6 + burst * 0.6) * mix(cool, violet, 0.5 + 0.5 * sin(u_time * 0.9));
+    col += centerRegen * mix(violet, cool, 0.5 + 0.5 * sin(motionTime * 0.6 + trapAccum * 1.4));
+    col += portalCore * (0.6 + burst * 0.6) * mix(cool, violet, 0.5 + 0.5 * sin(motionTime * 0.9));
 
     // Match Mode 1 vividness profile: stronger saturation/contrast without changing motion logic.
     float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
@@ -291,7 +294,7 @@ void main(){
     col *= 1.18 + energy * 0.10;
 
     float bloomMask = sat(edge * 0.75 + portalCore * 0.45);
-    vec3 bloomTint = mix(cool, violet, 0.5 + 0.5 * sin(u_time * 0.7 + d * 1.2));
+    vec3 bloomTint = mix(cool, violet, 0.5 + 0.5 * sin(motionTime * 0.7 + d * 1.2));
     col += bloomTint * bloomMask * (0.06 + highs * 0.03);
 
     // Keep soft highlight shoulder but reduce damping so Mode 2 matches Mode 1 vibrance.
@@ -313,6 +316,7 @@ out vec4 outColor;
 
 uniform vec2 u_resolution;
 uniform float u_time;
+uniform float u_motionEnabled;
 uniform vec4 u_audioA;
 uniform vec4 u_audioB;
 
@@ -380,8 +384,9 @@ vec3 liquidPalette(float t){
 }
 
 vec3 modeLiquid(vec2 p, float bass, float mids, float highs, float energy, float onset, float transport){
-  float t = u_time * (0.16 + energy * 0.24) + transport * 0.02;
-  vec2 globalDrift = vec2(0.08, -0.06) * u_time + vec2(transport * 0.0024, -transport * 0.0018);
+  float motionTime = u_time * u_motionEnabled;
+  float t = motionTime * (0.16 + energy * 0.24) + transport * 0.02;
+  vec2 globalDrift = vec2(0.08, -0.06) * motionTime + vec2(transport * 0.0024, -transport * 0.0018);
   vec2 base = p * 0.88 + globalDrift;
 
   vec2 flowLarge = flowNoise(base * 0.62 + vec2(t * 0.10, -t * 0.08));
@@ -420,7 +425,7 @@ vec3 modeLiquid(vec2 p, float bass, float mids, float highs, float energy, float
   float riverMask = smoothstep(0.46, 0.82, dyeRivers + ridges * 0.26);
   float foldMask = smoothstep(0.52, 0.9, body * 0.64 + eddies * 0.36 + bass * 0.18);
 
-  float hueSpin = u_time * (0.028 + energy * 0.036 + mids * 0.021) + transport * 0.0016;
+  float hueSpin = motionTime * (0.028 + energy * 0.036 + mids * 0.021) + transport * 0.0016;
   float bassWarm = smoothstep(0.14, 0.9, bass);
   float warmShift = bassWarm * (0.13 + onset * 0.1);
 
@@ -435,10 +440,10 @@ vec3 modeLiquid(vec2 p, float bass, float mids, float highs, float energy, float
   vec3 col = mix(baseCol, riverCol, riverMask * (0.52 + mids * 0.22));
   col = mix(col, foamCol, foldMask * (0.22 + highs * 0.18));
 
-  float shimmer = smoothstep(0.6, 0.95, fbm(q2 * 11.0 + vec2(u_time * 1.1, -u_time * 0.95)));
+  float shimmer = smoothstep(0.6, 0.95, fbm(q2 * 11.0 + vec2(motionTime * 1.1, -motionTime * 0.95)));
   col += foamCol * shimmer * highs * 0.12;
 
-  float micro = fbm(q2 * 14.5 + vec2(0.78 * u_time, -0.65 * u_time)) - 0.5;
+  float micro = fbm(q2 * 14.5 + vec2(0.78 * motionTime, -0.65 * motionTime)) - 0.5;
   col *= 0.9 + body * 0.56 + micro * 0.16;
 
   float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));

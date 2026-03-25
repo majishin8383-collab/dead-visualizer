@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-146-mode-settings-ui-fix",
+  buildTag: "dv-148-music-structure-activation",
   devControls: {
     enabled: true,
   },

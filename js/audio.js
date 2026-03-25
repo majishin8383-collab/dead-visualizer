@@ -45,6 +45,17 @@ export class AudioEngine {
     this.transport = 0;
     this.transportPhase = 0;
     this.motionPhase = 0;
+    this.motionEnabled = false;
+    this.hardSilence = true;
+    this.motionFrozen = true;
+    this.signalActive = false;
+    this.music = {
+      active: false,
+      confidence: 0,
+      hold: 0,
+      history: [],
+      prevSpectrum: null,
+    };
 
     this.lastUpdateAt = performance.now();
     this.lastDebugAt = 0;
@@ -107,7 +118,10 @@ export class AudioEngine {
     this.debugState = {
       initialized: false,
       live: false,
+      observedEnergy: 0,
       rawEnergy: 0,
+      signalEnergy: 0,
+      gatedEnergy: 0,
       bass: 0,
       mids: 0,
       highs: 0,
@@ -121,6 +135,12 @@ export class AudioEngine {
       pulseDrive: 0,
       energyLevel: 0,
       motionPhaseAdvancing: false,
+      motionEnabled: false,
+      hardSilence: true,
+      motionFrozen: true,
+      signalActive: false,
+      rhythmConfidence: 0,
+      musicActive: false,
       noiseFloor: 0,
       trueSignal: 0,
       activeAboveBaseline: false,
@@ -209,6 +229,91 @@ export class AudioEngine {
     return { ...this.tuning };
   }
 
+  evaluateMusicStructure({ dt, onset, pulse, bass, lowMid, mids, highs, trueSignal, activeAboveFloor }) {
+    const spectrum = [bass, lowMid, mids, highs];
+    let flux = 0;
+    if (this.music.prevSpectrum) {
+      for (let i = 0; i < spectrum.length; i++) {
+        flux += Math.abs(spectrum[i] - this.music.prevSpectrum[i]);
+      }
+      flux /= spectrum.length;
+    }
+    this.music.prevSpectrum = spectrum;
+
+    this.music.history.push({
+      onset: clamp(onset, 0, 1),
+      pulse: clamp(pulse, 0, 1),
+      flux: clamp(flux, 0, 1),
+    });
+    if (this.music.history.length > 96) this.music.history.shift();
+
+    const n = this.music.history.length;
+    if (n < 24) {
+      this.music.confidence = followEnvelope(this.music.confidence, 0, 4, 2.5, dt);
+      this.music.active = false;
+      this.music.hold = Math.max(0, this.music.hold - dt);
+      return { confidence: this.music.confidence, active: this.music.active };
+    }
+
+    const onsetSeries = this.music.history.map((h) => h.onset);
+    const pulseSeries = this.music.history.map((h) => h.pulse);
+    const fluxSeries = this.music.history.map((h) => h.flux);
+    const eventCount = onsetSeries.filter((v) => v > 0.09).length;
+    const eventDensity = eventCount / n;
+    const pulseMean = pulseSeries.reduce((sum, v) => sum + v, 0) / n;
+    const fluxMean = fluxSeries.reduce((sum, v) => sum + v, 0) / n;
+
+    let maxCorr = 0;
+    for (let lag = 6; lag <= 24; lag++) {
+      if (lag >= n) break;
+      let dot = 0;
+      let sumA = 0;
+      let sumB = 0;
+      for (let i = lag; i < n; i++) {
+        const a = onsetSeries[i];
+        const b = onsetSeries[i - lag];
+        dot += a * b;
+        sumA += a * a;
+        sumB += b * b;
+      }
+      const corr = dot / Math.max(1e-5, Math.sqrt(sumA * sumB));
+      if (corr > maxCorr) maxCorr = corr;
+    }
+
+    const signalStrength = clamp(trueSignal / Math.max(1e-5, activeAboveFloor * 3.6), 0, 1);
+    const densityScore = clamp((eventDensity - 0.07) / 0.25, 0, 1);
+    const regularityScore = clamp((maxCorr - 0.2) / 0.55, 0, 1);
+    const fluxScore = clamp((fluxMean - 0.014) / 0.09, 0, 1);
+    const pulseScore = clamp((pulseMean - 0.05) / 0.32, 0, 1);
+
+    let targetConfidence =
+      densityScore * 0.32 +
+      regularityScore * 0.3 +
+      fluxScore * 0.22 +
+      pulseScore * 0.16;
+    targetConfidence *= signalStrength;
+
+    const randomSpikePenalty = eventCount <= 2 && Math.max(...onsetSeries) > 0.35 ? 0.28 : 0;
+    targetConfidence = clamp(targetConfidence - randomSpikePenalty, 0, 1);
+
+    this.music.confidence = followEnvelope(this.music.confidence, targetConfidence, 5, 1.8, dt);
+
+    const activate = this.music.confidence > 0.56 && eventCount >= 4 && fluxMean > 0.012;
+    const stayActive = this.music.confidence > 0.42 && eventCount >= 3;
+    if (activate) {
+      this.music.active = true;
+      this.music.hold = 0.85;
+    } else {
+      this.music.hold = Math.max(0, this.music.hold - dt);
+      this.music.active = stayActive || this.music.hold > 0;
+    }
+
+    return {
+      confidence: this.music.confidence,
+      active: this.music.active,
+    };
+  }
+
   update() {
     const now = performance.now();
     const dt = clamp((now - this.lastUpdateAt) / 1000, 1 / 240, 0.1);
@@ -231,11 +336,20 @@ export class AudioEngine {
         peak: 0,
         silence: 1,
         motionPhaseAdvancing: false,
+        motionEnabled: false,
+        hardSilence: true,
+        motionFrozen: true,
+        signalActive: false,
+        rhythmConfidence: 0,
+        musicActive: false,
       };
       this.debugState = {
         initialized: this.ready,
         live: this.live,
+        observedEnergy: 0,
         rawEnergy: idle.energy,
+        signalEnergy: 0,
+        gatedEnergy: idle.energy,
         bass: idle.bass,
         mids: idle.mids,
         highs: idle.highs,
@@ -246,6 +360,12 @@ export class AudioEngine {
         onset: idle.onset,
         silence: idle.silence,
         motionPhaseAdvancing: false,
+        motionEnabled: false,
+        hardSilence: true,
+        motionFrozen: true,
+        signalActive: false,
+        rhythmConfidence: 0,
+        musicActive: false,
         noiseFloor: 0,
         trueSignal: 0,
         activeAboveBaseline: false,
@@ -319,6 +439,14 @@ export class AudioEngine {
     this.activeAboveBaseline = this.trueSignal >= activeAboveFloor;
     const signalCeiling = clamp(adaptiveCfg.signalCeiling ?? 0.2, 0.06, 0.45);
     this.raw.energy = clamp(this.trueSignal / signalCeiling, 0, 1);
+    const signalEnergy = this.raw.energy;
+    const signalActiveEnter = Math.max(activeAboveFloor * 1.2, 0.02);
+    const signalActiveExit = Math.max(activeAboveFloor * 0.7, 0.012);
+    if (this.trueSignal >= signalActiveEnter) {
+      this.signalActive = true;
+    } else if (this.trueSignal <= signalActiveExit) {
+      this.signalActive = false;
+    }
 
     const positiveDelta = Math.max(0, this.raw.energy - this.lastEnergy);
     this.raw.onset = clamp((positiveDelta * 5.5 + Math.max(0, this.raw.rms - 0.25) * 0.25) * this.tuning.audioReactivity, 0, 1);
@@ -335,6 +463,7 @@ export class AudioEngine {
       this.raw.silence = 1;
     }
     this.lastEnergy = this.raw.energy;
+    const gatedEnergy = this.raw.energy;
 
     const smoothingMul = clamp(1.2 - this.tuning.smoothing, 0.2, 2.0);
     this.smooth.bass = followEnvelope(this.smooth.bass, this.raw.bass, 12 * smoothingMul, 5 * smoothingMul, dt);
@@ -370,13 +499,26 @@ export class AudioEngine {
     const pulseComposite = clamp(this.pulse.onsetEnvelope * 0.64 + this.pulse.grooveEnvelope * 0.36, 0, 1);
     this.pulse.shortPulse = followEnvelope(this.pulse.shortPulse, pulseComposite, 12, 4.5, dt);
     this.pulse.longPulse = followEnvelope(this.pulse.longPulse, pulseComposite, 2.8, 1.25, dt);
+    const musicStructure = this.evaluateMusicStructure({
+      dt,
+      onset: safeOnset,
+      pulse: pulseComposite,
+      bass: this.smooth.bass,
+      lowMid: this.smooth.lowMid,
+      mids: this.smooth.mids,
+      highs: this.smooth.highs,
+      trueSignal: this.trueSignal,
+      activeAboveFloor,
+    });
+    this.motionEnabled = this.signalActive && musicStructure.active;
+    this.hardSilence = !this.motionEnabled;
     const silenceGate = clamp((1 - this.smooth.silence - 0.08) / 0.28, 0, 1);
     const activityGateTarget = this.activeAboveBaseline ? 1 : 0;
     this.pulse.motionGate = followEnvelope(this.pulse.motionGate, activityGateTarget, 8, 5.5, dt);
     const activityGate = this.pulse.motionGate;
     let pulseDriveTarget =
       clamp(this.pulse.shortPulse * 0.76 + this.pulse.longPulse * 0.24, 0, 1.3) * silenceGate * activityGate;
-    const hardIdle = this.trueSignal <= activeAboveFloor * 0.5;
+    const hardIdle = this.hardSilence;
     if (hardIdle) {
       pulseDriveTarget = 0;
       this.pulse.motionGate = 0;
@@ -400,6 +542,7 @@ export class AudioEngine {
     const effectiveDrive = clamp(finiteOr(this.motion.pulseDrive, 0), 0, 1.5);
     const phaseSeed = finiteOr(this.motionPhase, 0);
     this.motionPhase = hardIdle ? phaseSeed : phaseSeed + effectiveDrive * this.pulse.phaseGate * dt;
+    this.motionFrozen = hardIdle || effectiveDrive <= 1e-6 || this.pulse.phaseGate <= 1e-6;
     this.transportPhase = this.motionPhase % 1;
     this.transportPhase = finiteOr(this.transportPhase, 0);
 
@@ -423,7 +566,10 @@ export class AudioEngine {
     this.debugState = {
       initialized: this.ready,
       live: this.live,
+      observedEnergy,
       rawEnergy: this.raw.energy,
+      signalEnergy,
+      gatedEnergy,
       bass: reactiveBass,
       mids: reactiveMids,
       highs: reactiveHighs,
@@ -437,6 +583,12 @@ export class AudioEngine {
       detailSpeed: this.motion.detail,
       burstSpeed: this.motion.burst,
       motionPhaseAdvancing: motionAdvancing,
+      motionEnabled: this.motionEnabled,
+      hardSilence: this.hardSilence,
+      motionFrozen: this.motionFrozen,
+      signalActive: this.signalActive,
+      rhythmConfidence: this.music.confidence,
+      musicActive: this.music.active,
       noiseFloor: this.baselineEnergy,
       trueSignal: this.trueSignal,
       activeAboveBaseline: this.activeAboveBaseline,
@@ -448,7 +600,10 @@ export class AudioEngine {
       console.debug("[audio-debug]", {
         initialized: this.debugState.initialized,
         live: this.debugState.live,
+        observedEnergy: Number(this.debugState.observedEnergy.toFixed(3)),
         rawEnergy: Number(this.debugState.rawEnergy.toFixed(3)),
+        signalEnergy: Number(this.debugState.signalEnergy.toFixed(3)),
+        gatedEnergy: Number(this.debugState.gatedEnergy.toFixed(3)),
         bass: Number(this.debugState.bass.toFixed(3)),
         mids: Number(this.debugState.mids.toFixed(3)),
         highs: Number(this.debugState.highs.toFixed(3)),
@@ -459,6 +614,12 @@ export class AudioEngine {
         noiseFloor: Number(this.debugState.noiseFloor.toFixed(3)),
         trueSignal: Number(this.debugState.trueSignal.toFixed(3)),
         activeAboveBaseline: this.debugState.activeAboveBaseline,
+        motionEnabled: this.debugState.motionEnabled,
+        hardSilence: this.debugState.hardSilence,
+        motionFrozen: this.debugState.motionFrozen,
+        signalActive: this.debugState.signalActive,
+        rhythmConfidence: Number(this.debugState.rhythmConfidence.toFixed(3)),
+        musicActive: this.debugState.musicActive,
       });
     }
 
@@ -485,6 +646,12 @@ export class AudioEngine {
       detailSpeed: clamp(this.motion.detail, 0, 1),
       burstSpeed: clamp(this.motion.burst, 0, 1),
       motionPhaseAdvancing: motionAdvancing,
+      motionEnabled: this.motionEnabled,
+      hardSilence: this.hardSilence,
+      motionFrozen: this.motionFrozen,
+      signalActive: this.signalActive,
+      rhythmConfidence: this.music.confidence,
+      musicActive: this.music.active,
     };
   }
 }
