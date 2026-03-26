@@ -100,8 +100,9 @@ async function connectAudio() {
     await audioEngine.start();
     audioLabel.textContent = "Live input connected";
   } catch (err) {
-    console.error(err);
-    audioLabel.textContent = "Audio permission failed";
+    const reason = audioEngine.getLastInitError?.() || err?.message || String(err);
+    console.error("[audio-init] connect failed", { reason, error: err });
+    audioLabel.textContent = `Failed to load mic audio: ${reason}`;
   }
 }
 
