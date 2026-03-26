@@ -34,9 +34,14 @@ export class AudioEngine {
     this.analyser = null;
     this.source = null;
     this.stream = null;
+    this.inputGain = null;
+    this.silentMonitor = null;
 
     this.freqData = null;
     this.timeData = null;
+    this.floatTimeData = null;
+    this.lastAnalyserProbeAt = 0;
+    this.lastInitError = "";
 
     this.ready = false;
     this.live = false;
@@ -107,6 +112,13 @@ export class AudioEngine {
     this.tuning = {
       ...CONFIG.audio.tuning,
     };
+    this.music = {
+      prevSpectrum: null,
+      history: [],
+      confidence: 0,
+      active: false,
+      hold: 0,
+    };
 
     this.debugState = {
       initialized: false,
@@ -135,48 +147,110 @@ export class AudioEngine {
       trueSignal: 0,
       activeAboveBaseline: false,
       motionTime: 0,
+      initError: "",
     };
   }
 
   async start() {
-    if (this.ready && this.ctx && this.ctx.state !== "closed") {
-      if (this.ctx.state === "suspended") await this.ctx.resume();
+    try {
+      if (this.ready && this.ctx && this.ctx.state !== "closed") {
+        if (this.ctx.state === "suspended") {
+          await this.ctx.resume();
+        }
+        console.info("[audio-init] reusing existing audio context", { state: this.ctx.state });
+        this.live = true;
+        this.lastInitError = "";
+        this.debugState.initialized = true;
+        this.debugState.live = true;
+        this.debugState.initError = "";
+        return;
+      }
+
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) {
+        throw new Error("Web Audio API not available in this browser.");
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("navigator.mediaDevices.getUserMedia is unavailable.");
+      }
+
+      this.ctx = this.ctx && this.ctx.state !== "closed" ? this.ctx : new AudioCtx();
+      console.info("[audio-init] audio context created", {
+        state: this.ctx.state,
+        sampleRate: this.ctx.sampleRate,
+      });
+      if (this.ctx.state !== "running") {
+        await this.ctx.resume();
+      }
+      console.info("[audio-init] audio context after resume", { state: this.ctx.state });
+      if (this.ctx.state !== "running") {
+        throw new Error(`AudioContext failed to enter running state (state=${this.ctx.state}).`);
+      }
+
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: CONFIG.audio.echoCancellation,
+          noiseSuppression: CONFIG.audio.noiseSuppression,
+          autoGainControl: CONFIG.audio.autoGainControl,
+        },
+        video: false,
+      });
+      const tracks = this.stream.getAudioTracks();
+      console.info("[audio-init] getUserMedia stream received", {
+        stream: this.stream,
+        audioTrackCount: tracks.length,
+        trackStates: tracks.map((t) => ({ kind: t.kind, label: t.label, enabled: t.enabled, readyState: t.readyState })),
+      });
+      if (tracks.length === 0) {
+        throw new Error("Microphone stream contains zero audio tracks.");
+      }
+
+      this.source = this.ctx.createMediaStreamSource(this.stream);
+      this.inputGain = this.ctx.createGain();
+      this.inputGain.gain.value = 1.0;
+      this.analyser = this.ctx.createAnalyser();
+      this.analyser.fftSize = CONFIG.audio.fftSize;
+      this.analyser.smoothingTimeConstant = this.tuning.smoothing;
+      this.silentMonitor = this.ctx.createGain();
+      this.silentMonitor.gain.value = 0;
+
+      this.source.connect(this.inputGain);
+      this.inputGain.connect(this.analyser);
+      this.analyser.connect(this.silentMonitor);
+      this.silentMonitor.connect(this.ctx.destination);
+      console.info("[audio-init] node chain connected", {
+        hasSource: !!this.source,
+        hasInputGain: !!this.inputGain,
+        hasAnalyser: !!this.analyser,
+        hasDestination: !!this.ctx.destination,
+      });
+
+      this.freqData = new Uint8Array(this.analyser.frequencyBinCount);
+      this.timeData = new Uint8Array(this.analyser.fftSize);
+      this.floatTimeData = new Float32Array(this.analyser.fftSize);
+
+      this.lastUpdateAt = performance.now();
+      this.lastDebugAt = this.lastUpdateAt;
+      this.lastAnalyserProbeAt = 0;
+      this.ready = true;
       this.live = true;
+      this.lastInitError = "";
       this.debugState.initialized = true;
       this.debugState.live = true;
-      return;
+      this.debugState.initError = "";
+    } catch (err) {
+      this.ready = false;
+      this.live = false;
+      this.lastInitError = err?.message || String(err);
+      this.debugState.initialized = false;
+      this.debugState.live = false;
+      this.debugState.initError = this.lastInitError;
+      console.error("[audio-init] failed", {
+        reason: this.lastInitError,
+        error: err,
+      });
+      throw err;
     }
-
-    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (this.ctx.state === "suspended") {
-      await this.ctx.resume();
-    }
-
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: CONFIG.audio.echoCancellation,
-        noiseSuppression: CONFIG.audio.noiseSuppression,
-        autoGainControl: CONFIG.audio.autoGainControl,
-      },
-      video: false,
-    });
-
-    this.source = this.ctx.createMediaStreamSource(this.stream);
-    this.analyser = this.ctx.createAnalyser();
-    this.analyser.fftSize = CONFIG.audio.fftSize;
-    this.analyser.smoothingTimeConstant = this.tuning.smoothing;
-
-    this.source.connect(this.analyser);
-
-    this.freqData = new Uint8Array(this.analyser.frequencyBinCount);
-    this.timeData = new Uint8Array(this.analyser.fftSize);
-
-    this.lastUpdateAt = performance.now();
-    this.lastDebugAt = this.lastUpdateAt;
-    this.ready = true;
-    this.live = true;
-    this.debugState.initialized = true;
-    this.debugState.live = true;
   }
 
   averageRange(minHz, maxHz) {
@@ -217,6 +291,10 @@ export class AudioEngine {
 
   getTuning() {
     return { ...this.tuning };
+  }
+
+  getLastInitError() {
+    return this.lastInitError;
   }
 
   evaluateMusicStructure({ dt, onset, pulse, bass, lowMid, mids, highs, trueSignal, activeAboveFloor }) {
@@ -505,7 +583,7 @@ export class AudioEngine {
       trueSignal: this.trueSignal,
       activeAboveFloor,
     });
-    this.motionEnabled = this.signalActive && musicStructure.active;
+    this.motionEnabled = this.activeAboveBaseline && musicStructure.active;
     this.hardSilence = !this.motionEnabled;
     const silenceGate = clamp((1 - this.smooth.silence - 0.08) / 0.28, 0, 1);
     const activityGateTarget = this.activeAboveBaseline ? 1 : 0;
@@ -589,6 +667,14 @@ export class AudioEngine {
 
     if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 400) {
       this.lastDebugAt = now;
+      let analyserProbe = 0;
+      if (this.floatTimeData && this.analyser) {
+        this.analyser.getFloatTimeDomainData(this.floatTimeData);
+        for (let i = 0; i < this.floatTimeData.length; i++) {
+          analyserProbe += Math.abs(this.floatTimeData[i]);
+        }
+        analyserProbe /= Math.max(1, this.floatTimeData.length);
+      }
       console.debug("[audio-debug]", {
         initialized: this.debugState.initialized,
         live: this.debugState.live,
@@ -609,6 +695,10 @@ export class AudioEngine {
         motionEnabled: this.debugState.motionEnabled,
         hardSilence: this.debugState.hardSilence,
         motionFrozen: this.debugState.motionFrozen,
+        analyserProbe: Number(analyserProbe.toFixed(6)),
+        timeSample: this.floatTimeData
+          ? Array.from(this.floatTimeData.slice(0, 6)).map((v) => Number(v.toFixed(4)))
+          : [],
       });
     }
 
