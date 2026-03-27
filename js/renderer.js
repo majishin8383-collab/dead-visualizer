@@ -2,9 +2,14 @@ import { CONFIG } from "./config.js";
 import { computeBlackout } from "./transitions.js";
 import { VisualEngine } from "./visual-engine.js";
 import { FallbackEngine } from "./fallback-engine.js";
+import { MODE_MOTION_SETTINGS } from "./modes.js";
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
+}
+
+function getModeMotionSettings(mode) {
+  return MODE_MOTION_SETTINGS[mode] ?? MODE_MOTION_SETTINGS[1];
 }
 
 export class Renderer {
@@ -21,6 +26,12 @@ export class Renderer {
 
     this.motionPhase = 0;
     this.lastMotionPhase = 0;
+    this.motionDebug = {
+      baseFlow: 0,
+      motionScale: 1,
+      finalMotion: 0,
+      finalTransport: 0,
+    };
     this.lastTs = performance.now();
     this.lastActiveSignalAt = this.lastTs;
     this.silenceTimer = 0;
@@ -193,7 +204,15 @@ export class Renderer {
     this.silenceTimer = Math.max(0, (now - this.lastActiveSignalAt) / 1000);
 
     const pulseDrive = clamp(audio.pulseDrive ?? 0, 0, 1.5);
-    this.motionPhase = Number.isFinite(audio.motionTime) ? audio.motionTime : this.motionPhase;
+    const modeMotion = getModeMotionSettings(this.mode);
+    const transport = clamp(audio.transport ?? 0, 0, 1);
+    const finalTransport = transport * modeMotion.motionScale;
+    const finalMotion = Math.min(modeMotion.baseFlow + finalTransport, 0.6);
+    this.motionPhase += finalMotion * dt;
+    this.motionDebug.baseFlow = modeMotion.baseFlow;
+    this.motionDebug.motionScale = modeMotion.motionScale;
+    this.motionDebug.finalTransport = finalTransport;
+    this.motionDebug.finalMotion = finalMotion;
     const motionDelta = this.motionPhase - this.lastMotionPhase;
     this.lastMotionPhase = this.motionPhase;
     const events = this.eventsEngine.update(audio, dt);
@@ -212,7 +231,7 @@ export class Renderer {
       this.visual.render({
         mode: this.mode,
         time: this.motionPhase,
-        motionEnabled: !!audio.motionEnabled,
+        motionEnabled: finalMotion > 0,
         dt,
         blackout: blackout.fade,
         audio,
@@ -229,7 +248,7 @@ export class Renderer {
       this.visual.render?.({
         mode: this.mode,
         time: this.motionPhase,
-        motionEnabled: !!audio.motionEnabled,
+        motionEnabled: finalMotion > 0,
         blackout: blackout.fade,
         audio,
       });
@@ -285,6 +304,9 @@ export class Renderer {
           ` aM:${(audio.mids ?? 0).toFixed(2)}` +
           ` aH:${(audio.highs ?? 0).toFixed(2)}` +
           ` aT:${(audio.transport ?? 0).toFixed(2)}` +
+          ` bf:${this.motionDebug.baseFlow.toFixed(2)}` +
+          ` ms:${this.motionDebug.motionScale.toFixed(2)}` +
+          ` fm:${this.motionDebug.finalMotion.toFixed(2)}` +
           ` mode:${this.mode}` +
           ` b:${(audio.burstSpeed ?? 0).toFixed(2)}` +
           ` rs:${(audio.renderSpeed ?? 0).toFixed(2)}`;
@@ -299,6 +321,11 @@ export class Renderer {
         masterTimeDelta: Number(motionDelta.toFixed(5)),
         dt: Number(dt.toFixed(4)),
         transport: Number((audio.transport ?? 0).toFixed(4)),
+        transportRaw: Number((audio.transportRaw ?? 0).toFixed(4)),
+        baseFlow: Number(this.motionDebug.baseFlow.toFixed(4)),
+        motionScale: Number(this.motionDebug.motionScale.toFixed(4)),
+        finalTransport: Number(this.motionDebug.finalTransport.toFixed(4)),
+        finalMotion: Number(this.motionDebug.finalMotion.toFixed(4)),
         pulseDrive: Number((audio.pulseDrive ?? 0).toFixed(4)),
         renderSpeed: Number((audio.renderSpeed ?? 0).toFixed(4)),
         detailSpeed: Number((audio.detailSpeed ?? 0).toFixed(4)),
