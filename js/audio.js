@@ -56,6 +56,14 @@ export class AudioEngine {
     this.hardSilence = true;
     this.motionFrozen = true;
     this.motionEnableHold = 0;
+    this.motionDecision = {
+      signalAboveBaseline: false,
+      sustainActive: false,
+      transientActive: false,
+      sustainEnergy: 0,
+      sustainThreshold: 0,
+      transientLevel: 0,
+    };
 
     this.lastUpdateAt = performance.now();
     this.lastDebugAt = 0;
@@ -83,6 +91,7 @@ export class AudioEngine {
       onset: 0,
       peak: 0,
       silence: 1,
+      sustainEnergy: 0,
       guitar: 0,
       air: 0,
       transport: 0,
@@ -160,6 +169,9 @@ export class AudioEngine {
       burstSpeed: 0,
       pulseDrive: 0,
       energyLevel: 0,
+      sustainEnergy: 0,
+      sustainThreshold: 0,
+      motionDecision: {},
       motionPhaseAdvancing: false,
       motionEnabled: false,
       hardSilence: true,
@@ -430,6 +442,16 @@ export class AudioEngine {
         motionEnabled: false,
         hardSilence: true,
         motionFrozen: true,
+        sustainEnergy: 0,
+        sustainThreshold: 0,
+        motionDecision: {
+          signalAboveBaseline: false,
+          sustainActive: false,
+          transientActive: false,
+          sustainEnergy: 0,
+          sustainThreshold: 0,
+          transientLevel: 0,
+        },
       };
       this.debugState = {
         initialized: this.ready,
@@ -567,25 +589,6 @@ export class AudioEngine {
     this.raw.highs = floorSubtractNormalize(scaledHighs, highsFloor + floorBias, bandSignalCeiling, deadZone);
     this.raw.air = floorSubtractNormalize(scaledAir, airFloor + floorBias, bandSignalCeiling, deadZone);
     this.raw.guitar = floorSubtractNormalize(scaledGuitar, guitarFloor + floorBias, bandSignalCeiling, deadZone);
-    const hardSilenceEnter = Math.max(activeAboveFloor * 0.6, 0.012);
-    const hardSilenceExit = Math.max(activeAboveFloor * 1.35, 0.025);
-    const sustainEnterSeconds = 0.16;
-    const sustainExitSeconds = 0.12;
-    const shouldEnableMotion = this.trueSignal >= hardSilenceExit;
-    const shouldDisableMotion = this.trueSignal <= hardSilenceEnter;
-    if (shouldEnableMotion) {
-      this.motionEnableHold = Math.min(sustainExitSeconds, this.motionEnableHold + dt);
-      if (this.motionEnableHold >= sustainExitSeconds) {
-        this.motionEnabled = true;
-      }
-    } else if (shouldDisableMotion) {
-      this.motionEnableHold = Math.max(-sustainEnterSeconds, this.motionEnableHold - dt);
-      if (this.motionEnableHold <= -sustainEnterSeconds) {
-        this.motionEnabled = false;
-      }
-    }
-    this.hardSilence = !this.motionEnabled;
-
     const positiveDelta = Math.max(0, this.raw.energy - this.lastEnergy);
     this.raw.onset = clamp((positiveDelta * 5.5 + Math.max(0, this.raw.rms - 0.25) * 0.25) * this.tuning.audioReactivity, 0, 1);
     this.raw.peak = clamp((peakNorm * 0.55 + this.raw.onset * 0.45) * this.tuning.peakIntensity, 0, 1);
@@ -593,7 +596,26 @@ export class AudioEngine {
       this.raw.onset *= 0.15;
       this.raw.peak *= 0.2;
     }
-    this.raw.silence = clamp(1 - this.raw.energy * 1.6, 0, 1);
+    const sustainTarget = clamp(
+      this.raw.rms * 0.66 +
+        this.raw.lowMid * 0.14 +
+        this.raw.mids * 0.12 +
+        this.raw.guitar * 0.08,
+      0,
+      1
+    );
+    const sustainWindowSeconds = 0.52;
+    const sustainAttackHz = 1 / Math.max(0.2, sustainWindowSeconds * 0.7);
+    const sustainReleaseHz = 1 / Math.max(0.3, sustainWindowSeconds * 1.4);
+    this.smooth.sustainEnergy = followEnvelope(
+      this.smooth.sustainEnergy,
+      sustainTarget,
+      sustainAttackHz,
+      sustainReleaseHz,
+      dt
+    );
+    const sustainSilenceLift = this.smooth.sustainEnergy * 1.18;
+    this.raw.silence = clamp(1 - Math.max(this.raw.energy * 1.6, sustainSilenceLift), 0, 1);
     if (!this.activeAboveBaseline && this.raw.energy < this.tuning.noiseGate) {
       this.raw.energy = 0;
       this.raw.onset = 0;
@@ -618,6 +640,7 @@ export class AudioEngine {
     const safeEnergy = finiteOr(this.smooth.energy, 0);
     const safeOnset = finiteOr(this.smooth.onset, 0);
     const safePeak = finiteOr(this.smooth.peak, 0);
+    const safeSustain = finiteOr(this.smooth.sustainEnergy, 0);
     const safeMids = finiteOr(this.smooth.mids, 0);
     const safeHighs = finiteOr(this.smooth.highs, 0);
     const bassDeltaRaw = Math.max(0, this.raw.bass - this.smooth.bass);
@@ -650,15 +673,40 @@ export class AudioEngine {
     });
     const structureActive = !!musicStructure.active;
     const confidence = finiteOr(musicStructure.confidence, 0);
-    this.motionEnabled = this.activeAboveBaseline;
+    const sustainThreshold = clamp(Math.max(this.tuning.noiseGate * 0.82, 0.055), 0.04, 0.2);
+    const transientLevel = clamp(safeOnset * 0.62 + safePeak * 0.38, 0, 1);
+    const transientActive = transientLevel > 0.085;
+    const sustainActive = safeSustain > sustainThreshold;
+    const motionGateTarget = this.activeAboveBaseline && (sustainActive || transientActive);
+    const motionEnableSeconds = 0.09;
+    const motionDisableSeconds = 0.26;
+    if (motionGateTarget) {
+      this.motionEnableHold = Math.min(motionEnableSeconds, this.motionEnableHold + dt);
+      if (this.motionEnableHold >= motionEnableSeconds) {
+        this.motionEnabled = true;
+      }
+    } else {
+      this.motionEnableHold = Math.max(-motionDisableSeconds, this.motionEnableHold - dt);
+      if (this.motionEnableHold <= -motionDisableSeconds) {
+        this.motionEnabled = false;
+      }
+    }
     this.hardSilence = !this.motionEnabled;
+    this.motionDecision = {
+      signalAboveBaseline: this.activeAboveBaseline,
+      sustainActive,
+      transientActive,
+      sustainEnergy: safeSustain,
+      sustainThreshold,
+      transientLevel,
+    };
     const silenceGate = clamp((1 - this.smooth.silence - 0.08) / 0.28, 0, 1);
     const activityGateTarget = this.activeAboveBaseline ? clamp(0.35 + confidence * 0.65, 0, 1) : 0;
     this.pulse.motionGate = followEnvelope(this.pulse.motionGate, activityGateTarget, 8, 5.5, dt);
     const activityGate = this.pulse.motionGate;
     let pulseDriveTarget =
       clamp(this.pulse.shortPulse * 0.76 + this.pulse.longPulse * 0.24, 0, 1.3) * silenceGate * activityGate;
-    const hardIdle = !this.activeAboveBaseline;
+    const hardIdle = !this.motionEnabled;
     if (hardIdle) {
       pulseDriveTarget = 0;
       this.pulse.motionGate = 0;
@@ -725,6 +773,8 @@ export class AudioEngine {
       mids: reactiveMids,
       highs: reactiveHighs,
       smoothedEnergy: reactiveEnergy,
+      sustainEnergy: safeSustain,
+      sustainThreshold,
       pulseDrive: this.motion.pulseDrive,
       energyLevel: reactiveEnergy,
       transport: this.transport,
@@ -741,6 +791,7 @@ export class AudioEngine {
       noiseFloor: this.baselineEnergy,
       trueSignal: this.trueSignal,
       activeAboveBaseline: this.activeAboveBaseline,
+      motionDecision: { ...this.motionDecision },
       rhythmConfidence: confidence,
       rhythmActive: structureActive,
       motionTime: this.motionPhase,
@@ -777,6 +828,9 @@ export class AudioEngine {
         mids: Number(this.debugState.mids.toFixed(3)),
         highs: Number(this.debugState.highs.toFixed(3)),
         smoothedEnergy: Number(this.debugState.smoothedEnergy.toFixed(3)),
+        sustainEnergy: Number((this.debugState.sustainEnergy ?? 0).toFixed(3)),
+        sustainThreshold: Number((this.debugState.sustainThreshold ?? 0).toFixed(3)),
+        motionDecision: this.debugState.motionDecision ?? {},
         transport: Number(this.debugState.transport.toFixed(3)),
         transportRaw: Number((this.debugState.transportRaw ?? 0).toFixed(3)),
         onset: Number(this.debugState.onset.toFixed(3)),
@@ -805,6 +859,8 @@ export class AudioEngine {
       air: reactiveAir,
       energy: reactiveEnergy,
       energyLevel: reactiveEnergy,
+      sustainEnergy: safeSustain,
+      sustainThreshold,
       pulseDrive: clamp(this.motion.pulseDrive, 0, 1.5),
       transport: clamp(this.transport, 0, 1),
       transportRaw: clamp(rawTransport, 0, 1),
@@ -815,6 +871,7 @@ export class AudioEngine {
       noiseFloor: clamp(this.baselineEnergy, 0, 1),
       trueSignal: clamp(this.trueSignal, 0, 1),
       activeAboveBaseline: this.activeAboveBaseline,
+      motionDecision: { ...this.motionDecision },
       motionTime: finiteOr(this.motionPhase, 0),
       motionSpeed: clamp(this.motion.speed, 0, 1.5),
       detailSpeed: clamp(this.motion.detail, 0, 1),

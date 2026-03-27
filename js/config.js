@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-153-motion-scaling",
+  buildTag: "dv-154-sustain-detection",
   devControls: {
     enabled: true,
   },
