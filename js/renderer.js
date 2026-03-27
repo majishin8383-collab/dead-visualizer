@@ -195,6 +195,7 @@ export class Renderer {
     const activeSignalLevel = Math.max(
       audio.trueSignal ?? 0,
       audio.energy ?? 0,
+      audio.sustainEnergy ?? 0,
       (audio.onset ?? 0) * 0.55,
       (audio.peak ?? 0) * 0.45
     );
