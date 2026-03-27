@@ -15,8 +15,10 @@ function followEnvelope(current, target, attackHz, releaseHz, dt) {
   return current + (target - current) * alpha;
 }
 
-function normalizeBand(v, floor = 0.02, ceiling = 0.36) {
-  return clamp((v - floor) / Math.max(1e-5, ceiling - floor), 0, 1);
+function floorSubtractNormalize(value, floor, maxExpectedSignal, deadZone = 0.012) {
+  const signal = Math.max(0, value - floor);
+  if (signal < deadZone) return 0;
+  return clamp(signal / Math.max(1e-5, maxExpectedSignal), 0, 1);
 }
 
 function computePeakNorm(freqData) {
@@ -60,6 +62,14 @@ export class AudioEngine {
 
     this.noiseFloor = 0.01;
     this.baselineEnergy = 0.02;
+    this.bandNoiseFloor = {
+      bass: 0.01,
+      lowMid: 0.01,
+      mids: 0.01,
+      highs: 0.01,
+      air: 0.01,
+      guitar: 0.01,
+    };
     this.trueSignal = 0;
     this.activeAboveBaseline = false;
     this.calibratedGain = 1.0;
@@ -482,20 +492,20 @@ export class AudioEngine {
     this.calibratedGain = followEnvelope(this.calibratedGain, targetGain, 1.6, 0.5, dt);
     const tunedGain = this.calibratedGain * this.tuning.micSensitivity;
 
-    this.raw.bass = normalizeBand(rawBass * tunedGain, 0.03, 0.82);
-    this.raw.lowMid = normalizeBand(rawLowMid * tunedGain, 0.03, 0.78);
-    this.raw.mids = normalizeBand(rawMids * tunedGain, 0.03, 0.8);
-    this.raw.highs = normalizeBand(rawHighs * tunedGain, 0.02, 0.75);
-    this.raw.air = normalizeBand(rawAir * tunedGain, 0.02, 0.75);
-    this.raw.guitar = normalizeBand(rawGuitar * tunedGain, 0.03, 0.8);
-    this.raw.rms = normalizeBand(rms * tunedGain, this.noiseFloor * 0.85, 0.4);
+    const scaledBass = rawBass * tunedGain;
+    const scaledLowMid = rawLowMid * tunedGain;
+    const scaledMids = rawMids * tunedGain;
+    const scaledHighs = rawHighs * tunedGain;
+    const scaledAir = rawAir * tunedGain;
+    const scaledGuitar = rawGuitar * tunedGain;
+    const scaledRms = rms * tunedGain;
 
     const observedEnergy = clamp(
-      this.raw.bass * 0.34 +
-        this.raw.lowMid * 0.16 +
-        this.raw.mids * 0.22 +
-        this.raw.highs * 0.1 +
-        this.raw.rms * 0.3,
+      scaledBass * 0.26 +
+        scaledLowMid * 0.14 +
+        scaledMids * 0.2 +
+        scaledHighs * 0.1 +
+        scaledRms * 0.78,
       0,
       1
     );
@@ -514,16 +524,47 @@ export class AudioEngine {
       0,
       0.95
     );
+    const bandRiseSeconds = Math.max(6, adaptiveCfg.bandRiseSeconds ?? 10);
+    const bandFallSeconds = Math.max(6, adaptiveCfg.bandFallSeconds ?? 8);
+    const bandRiseAlpha = (1 - Math.exp(-dt / bandRiseSeconds)) * burstSuppression;
+    const bandFallAlpha = 1 - Math.exp(-dt / bandFallSeconds);
+    const bandCaptureHeadroom = clamp(adaptiveCfg.bandCaptureHeadroom ?? 0.035, 0.008, 0.12);
+    const updateBandFloor = (key, value) => {
+      const currentFloor = this.bandNoiseFloor[key] ?? 0.01;
+      const candidate = Math.min(value, currentFloor + bandCaptureHeadroom);
+      const alpha = candidate > currentFloor ? bandRiseAlpha : bandFallAlpha;
+      this.bandNoiseFloor[key] = clamp(currentFloor + (candidate - currentFloor) * alpha, 0, 0.95);
+      return this.bandNoiseFloor[key];
+    };
+
+    const bassFloor = updateBandFloor("bass", scaledBass);
+    const lowMidFloor = updateBandFloor("lowMid", scaledLowMid);
+    const midsFloor = updateBandFloor("mids", scaledMids);
+    const highsFloor = updateBandFloor("highs", scaledHighs);
+    const airFloor = updateBandFloor("air", scaledAir);
+    const guitarFloor = updateBandFloor("guitar", scaledGuitar);
+
     this.noiseFloor = this.noiseFloor * 0.995 + this.baselineEnergy * 0.005;
 
     const floorBias = clamp(adaptiveCfg.bias ?? 0.012, 0.002, 0.05);
     const activeAboveFloor = clamp(adaptiveCfg.activeAboveFloor ?? 0.018, 0.005, 0.08);
     const floorAdjusted = this.baselineEnergy + floorBias;
-    this.trueSignal = Math.max(0, observedEnergy - floorAdjusted);
+    const deadZone = clamp(adaptiveCfg.deadZone ?? 0.014, 0.008, 0.03);
+    const rmsSignal = Math.max(0, scaledRms - floorAdjusted);
+    this.trueSignal = rmsSignal < deadZone ? 0 : rmsSignal;
     this.activeAboveBaseline = this.trueSignal >= activeAboveFloor;
     const signalCeiling = clamp(adaptiveCfg.signalCeiling ?? 0.2, 0.06, 0.45);
-    this.raw.energy = clamp(this.trueSignal / signalCeiling, 0, 1);
+    this.raw.rms = floorSubtractNormalize(scaledRms, floorAdjusted, signalCeiling, deadZone);
+    this.raw.energy = this.raw.rms;
     const signalEnergy = this.raw.energy;
+
+    const bandSignalCeiling = clamp(adaptiveCfg.bandSignalCeiling ?? 0.28, 0.08, 0.6);
+    this.raw.bass = floorSubtractNormalize(scaledBass, bassFloor + floorBias, bandSignalCeiling, deadZone);
+    this.raw.lowMid = floorSubtractNormalize(scaledLowMid, lowMidFloor + floorBias, bandSignalCeiling, deadZone);
+    this.raw.mids = floorSubtractNormalize(scaledMids, midsFloor + floorBias, bandSignalCeiling, deadZone);
+    this.raw.highs = floorSubtractNormalize(scaledHighs, highsFloor + floorBias, bandSignalCeiling, deadZone);
+    this.raw.air = floorSubtractNormalize(scaledAir, airFloor + floorBias, bandSignalCeiling, deadZone);
+    this.raw.guitar = floorSubtractNormalize(scaledGuitar, guitarFloor + floorBias, bandSignalCeiling, deadZone);
     const hardSilenceEnter = Math.max(activeAboveFloor * 0.6, 0.012);
     const hardSilenceExit = Math.max(activeAboveFloor * 1.35, 0.025);
     const sustainEnterSeconds = 0.16;
