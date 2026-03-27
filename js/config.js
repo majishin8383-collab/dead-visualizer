@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-149-audio-init-fix",
+  buildTag: "dv-151-full-signal-audit",
   devControls: {
     enabled: true,
   },
