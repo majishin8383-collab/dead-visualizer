@@ -246,7 +246,18 @@ export class Renderer {
         this.hudRefs.audioDebugLabel.textContent =
           `init:${dbg.initialized ? "Y" : "N"}` +
           ` live:${dbg.live ? "Y" : "N"}` +
+          ` ctx:${dbg.ctxState ?? "?"}` +
+          ` str:${dbg.streamActive ? "Y" : "N"}` +
+          ` fft:${dbg.fftSize ?? 0}` +
+          ` bins:${dbg.freqBinCount ?? 0}` +
+          ` f0:${((dbg.firstBins?.[0] ?? 0) * 1).toFixed(2)}` +
+          ` f1:${((dbg.firstBins?.[1] ?? 0) * 1).toFixed(2)}` +
+          ` f2:${((dbg.firstBins?.[2] ?? 0) * 1).toFixed(2)}` +
           ` obsE:${(dbg.observedEnergy ?? 0).toFixed(2)}` +
+          ` rmsR:${(dbg.rmsRaw ?? 0).toFixed(2)}` +
+          ` bR:${(dbg.bassRaw ?? 0).toFixed(2)}` +
+          ` mR:${(dbg.midsRaw ?? 0).toFixed(2)}` +
+          ` hR:${(dbg.highsRaw ?? 0).toFixed(2)}` +
           ` rawE:${dbg.rawEnergy.toFixed(2)}` +
           ` sigE:${(dbg.signalEnergy ?? 0).toFixed(2)}` +
           ` gatE:${(dbg.gatedEnergy ?? 0).toFixed(2)}` +
@@ -269,6 +280,11 @@ export class Renderer {
           ` fr:${dbg.motionFrozen ? "Y" : "N"}` +
           ` md:${motionDelta.toFixed(4)}` +
           ` mt:${(dbg.motionTime ?? this.motionPhase).toFixed(2)}` +
+          ` aE:${(audio.energy ?? 0).toFixed(2)}` +
+          ` aB:${(audio.bass ?? 0).toFixed(2)}` +
+          ` aM:${(audio.mids ?? 0).toFixed(2)}` +
+          ` aH:${(audio.highs ?? 0).toFixed(2)}` +
+          ` aT:${(audio.transport ?? 0).toFixed(2)}` +
           ` mode:${this.mode}` +
           ` b:${(audio.burstSpeed ?? 0).toFixed(2)}` +
           ` rs:${(audio.renderSpeed ?? 0).toFixed(2)}`;

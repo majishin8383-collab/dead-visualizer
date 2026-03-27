@@ -123,6 +123,16 @@ export class AudioEngine {
     this.debugState = {
       initialized: false,
       live: false,
+      ctxState: "uninitialized",
+      streamActive: false,
+      fftSize: 0,
+      freqBinCount: 0,
+      firstBins: [],
+      rmsRaw: 0,
+      bassRaw: 0,
+      lowMidRaw: 0,
+      midsRaw: 0,
+      highsRaw: 0,
       observedEnergy: 0,
       rawEnergy: 0,
       signalEnergy: 0,
@@ -388,6 +398,8 @@ export class AudioEngine {
     this.lastUpdateAt = now;
 
     if (!this.ready || !this.analyser || !this.freqData || !this.timeData) {
+      const streamTracks = this.stream?.getAudioTracks?.() ?? [];
+      const streamActive = streamTracks.length > 0 && streamTracks.some((track) => track.readyState === "live");
       const idle = {
         bass: 0,
         lowMid: 0,
@@ -411,6 +423,16 @@ export class AudioEngine {
       this.debugState = {
         initialized: this.ready,
         live: this.live,
+        ctxState: this.ctx?.state ?? "uninitialized",
+        streamActive,
+        fftSize: this.analyser?.fftSize ?? 0,
+        freqBinCount: this.analyser?.frequencyBinCount ?? 0,
+        firstBins: [],
+        rmsRaw: 0,
+        bassRaw: 0,
+        lowMidRaw: 0,
+        midsRaw: 0,
+        highsRaw: 0,
         observedEnergy: 0,
         rawEnergy: idle.energy,
         signalEnergy: 0,
@@ -583,15 +605,17 @@ export class AudioEngine {
       trueSignal: this.trueSignal,
       activeAboveFloor,
     });
-    this.motionEnabled = this.activeAboveBaseline && musicStructure.active;
+    const structureActive = !!musicStructure.active;
+    const confidence = finiteOr(musicStructure.confidence, 0);
+    this.motionEnabled = this.activeAboveBaseline;
     this.hardSilence = !this.motionEnabled;
     const silenceGate = clamp((1 - this.smooth.silence - 0.08) / 0.28, 0, 1);
-    const activityGateTarget = this.activeAboveBaseline ? 1 : 0;
+    const activityGateTarget = this.activeAboveBaseline ? clamp(0.35 + confidence * 0.65, 0, 1) : 0;
     this.pulse.motionGate = followEnvelope(this.pulse.motionGate, activityGateTarget, 8, 5.5, dt);
     const activityGate = this.pulse.motionGate;
     let pulseDriveTarget =
       clamp(this.pulse.shortPulse * 0.76 + this.pulse.longPulse * 0.24, 0, 1.3) * silenceGate * activityGate;
-    const hardIdle = this.hardSilence;
+    const hardIdle = !this.activeAboveBaseline;
     if (hardIdle) {
       pulseDriveTarget = 0;
       this.pulse.motionGate = 0;
@@ -625,7 +649,7 @@ export class AudioEngine {
     this.transport = hardIdle ? 0 : clamp(this.smooth.transport, 0, 1);
 
     const signalMix = clamp(this.trueSignal / Math.max(1e-5, signalCeiling), 0, 1);
-    const reactiveMix = hardIdle ? 0 : signalMix;
+    const reactiveMix = signalMix;
     const reactiveBass = clamp(this.smooth.bass * reactiveMix, 0, 1);
     const reactiveLowMid = clamp(this.smooth.lowMid * reactiveMix, 0, 1);
     const reactiveMids = clamp(this.smooth.mids * reactiveMix, 0, 1);
@@ -639,6 +663,16 @@ export class AudioEngine {
     this.debugState = {
       initialized: this.ready,
       live: this.live,
+      ctxState: this.ctx?.state ?? "unknown",
+      streamActive: (this.stream?.getAudioTracks?.() ?? []).some((track) => track.readyState === "live"),
+      fftSize: this.analyser?.fftSize ?? 0,
+      freqBinCount: this.analyser?.frequencyBinCount ?? 0,
+      firstBins: Array.from(this.freqData.slice(0, 8)).map((v) => Number((v / 255).toFixed(3))),
+      rmsRaw: rms,
+      bassRaw: rawBass,
+      lowMidRaw: rawLowMid,
+      midsRaw: rawMids,
+      highsRaw: rawHighs,
       observedEnergy,
       rawEnergy: this.raw.energy,
       signalEnergy,
@@ -662,6 +696,8 @@ export class AudioEngine {
       noiseFloor: this.baselineEnergy,
       trueSignal: this.trueSignal,
       activeAboveBaseline: this.activeAboveBaseline,
+      rhythmConfidence: confidence,
+      rhythmActive: structureActive,
       motionTime: this.motionPhase,
     };
 
@@ -678,6 +714,16 @@ export class AudioEngine {
       console.debug("[audio-debug]", {
         initialized: this.debugState.initialized,
         live: this.debugState.live,
+        ctxState: this.debugState.ctxState,
+        streamActive: this.debugState.streamActive,
+        fftSize: this.debugState.fftSize,
+        freqBinCount: this.debugState.freqBinCount,
+        firstBins: this.debugState.firstBins,
+        rmsRaw: Number(this.debugState.rmsRaw.toFixed(6)),
+        bassRaw: Number(this.debugState.bassRaw.toFixed(6)),
+        lowMidRaw: Number(this.debugState.lowMidRaw.toFixed(6)),
+        midsRaw: Number(this.debugState.midsRaw.toFixed(6)),
+        highsRaw: Number(this.debugState.highsRaw.toFixed(6)),
         observedEnergy: Number(this.debugState.observedEnergy.toFixed(3)),
         rawEnergy: Number(this.debugState.rawEnergy.toFixed(3)),
         signalEnergy: Number(this.debugState.signalEnergy.toFixed(3)),
@@ -692,6 +738,8 @@ export class AudioEngine {
         noiseFloor: Number(this.debugState.noiseFloor.toFixed(3)),
         trueSignal: Number(this.debugState.trueSignal.toFixed(3)),
         activeAboveBaseline: this.debugState.activeAboveBaseline,
+        rhythmConfidence: Number((this.debugState.rhythmConfidence ?? 0).toFixed(3)),
+        rhythmActive: !!this.debugState.rhythmActive,
         motionEnabled: this.debugState.motionEnabled,
         hardSilence: this.debugState.hardSilence,
         motionFrozen: this.debugState.motionFrozen,
