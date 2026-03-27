@@ -220,18 +220,18 @@ void main(){
     mp = vec2(cos(a), sin(a)) * r;
 
     // Recursive zoom in fractal space; bounded looping avoids runaway speed.
-    float mode2Speed = (transportNorm * 1.0 + onset * 0.36 + energy * 0.18) * u_motionEnabled;
-    float zoom = motionTime * mode2Speed * (0.18 + bass * 0.09 + energy * 0.04);
+    float mode2Speed = (transportNorm * 0.62 + onset * 0.18 + energy * 0.10) * u_motionEnabled;
+    float zoom = motionTime * mode2Speed * (0.10 + bass * 0.05 + energy * 0.02);
     float zoomLoop = mod(zoom, 6.0) - 3.0;
     mp *= exp(zoomLoop);
 
     float burst = exp(-u_burstAge * 3.2) * u_hardTransient;
-    float spiral = a + log(r + 1e-4) * (1.9 + bass * 1.1) - motionTime * mode2Speed * (0.28 + bass * 0.11);
+    float spiral = a + log(r + 1e-4) * (1.6 + bass * 0.8) - motionTime * mode2Speed * (0.12 + bass * 0.06);
     float spiralTwist = 0.22 + mids * 0.28;
     mp = rot(spiral * spiralTwist) * mp;
 
     float distortAmt = 0.08 + mids * 0.22 + burst * 0.2;
-    vec2 q = mp + flowNoise(mp * (1.8 + highs * 1.4) + vec2(0.0, motionTime * 0.08 * mode2Speed)) * distortAmt;
+    vec2 q = mp + flowNoise(mp * (1.4 + highs * 0.9) + vec2(0.0, motionTime * 0.035 * mode2Speed)) * distortAmt;
 
     float trapMin = 1e4;
     float trapAccum = 0.0;
@@ -496,4 +496,11 @@ export const SHADERS = {
   liquidFragment: LIQUID_FRAGMENT_GLSL,
   sceneFragment: COMMON_GLSL,
   copyFragment: COPY_FRAGMENT_GLSL,
+};
+
+export const MODE_MOTION_SETTINGS = {
+  1: { motionScale: 0.35, baseFlow: 0.02 },
+  2: { motionScale: 0.2, baseFlow: 0.01 },
+  3: { motionScale: 0.4, baseFlow: 0.02 },
+  4: { motionScale: 0.5, baseFlow: 0.03 },
 };

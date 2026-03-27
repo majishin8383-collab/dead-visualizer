@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-151-full-signal-audit",
+  buildTag: "dv-153-motion-scaling",
   devControls: {
     enabled: true,
   },

@@ -86,6 +86,7 @@ export class AudioEngine {
       guitar: 0,
       air: 0,
       transport: 0,
+      transportRaw: 0,
     };
 
     this.raw = {
@@ -454,6 +455,7 @@ export class AudioEngine {
         pulseDrive: 0,
         energyLevel: 0,
         transport: idle.transport,
+        transportRaw: 0,
         onset: idle.onset,
         silence: idle.silence,
         motionPhaseAdvancing: false,
@@ -687,7 +689,8 @@ export class AudioEngine {
     this.raw.transport = effectiveDrive;
     this.smooth.transport = followEnvelope(this.smooth.transport, effectiveDrive, 9, 3.2, dt);
     this.smooth.transport = finiteOr(this.smooth.transport, 0);
-    this.transport = hardIdle ? 0 : clamp(this.smooth.transport, 0, 1);
+    const rawTransport = hardIdle ? 0 : clamp(this.smooth.transport, 0, 1);
+    this.transport = clamp(Math.pow(rawTransport, 1.5), 0, 1);
 
     const signalMix = clamp(this.trueSignal / Math.max(1e-5, signalCeiling), 0, 1);
     const reactiveMix = signalMix;
@@ -725,6 +728,7 @@ export class AudioEngine {
       pulseDrive: this.motion.pulseDrive,
       energyLevel: reactiveEnergy,
       transport: this.transport,
+      transportRaw: rawTransport,
       onset: reactiveOnset,
       silence: this.smooth.silence,
       motionSpeed: this.motion.speed,
@@ -774,6 +778,7 @@ export class AudioEngine {
         highs: Number(this.debugState.highs.toFixed(3)),
         smoothedEnergy: Number(this.debugState.smoothedEnergy.toFixed(3)),
         transport: Number(this.debugState.transport.toFixed(3)),
+        transportRaw: Number((this.debugState.transportRaw ?? 0).toFixed(3)),
         onset: Number(this.debugState.onset.toFixed(3)),
         silence: Number(this.debugState.silence.toFixed(3)),
         noiseFloor: Number(this.debugState.noiseFloor.toFixed(3)),
@@ -802,6 +807,7 @@ export class AudioEngine {
       energyLevel: reactiveEnergy,
       pulseDrive: clamp(this.motion.pulseDrive, 0, 1.5),
       transport: clamp(this.transport, 0, 1),
+      transportRaw: clamp(rawTransport, 0, 1),
       renderSpeed: clamp(this.motion.renderSpeed, 0, 1.35),
       onset: reactiveOnset,
       peak: reactivePeak,
