@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dead Visualizer dv-157-full-control-panel</title>
+  <title>Dead Visualizer dv-158-set-baseline-button</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Rye&family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/styles.css?v=157control" />
+  <link rel="stylesheet" href="./css/styles.css?v=158baseline" />
 </head>
 <body>
   <div id="app"><canvas id="mainCanvas"></canvas></div>
@@ -20,7 +20,7 @@
       <div id="houseControls"><h3>HOUSE CONTROLS</h3><p>F = Fullscreen · H = Hide ALL UI · A = Auto Cycle · Space = Blackout Hit</p></div>
       <div id="warmupStatus" aria-live="polite">warming up...</div>
       <button id="startButton">LAUNCH THE SHOW</button>
-      <p id="versionTag">dv-157-full-control-panel</p>
+      <p id="versionTag">dv-158-set-baseline-button</p>
     </div>
   </div>
 
@@ -52,6 +52,10 @@
         <label>Mic Sensitivity <span id="micSensitivityValue"></span> · engine <span id="micSensitivityEngine"></span></label><input id="micSensitivity" type="range" min="0.10" max="4.00" step="0.01" />
         <label>Noise Gate <span id="noiseGateValue"></span> · engine <span id="noiseGateEngine"></span></label><input id="noiseGate" type="range" min="0.00" max="0.20" step="0.001" />
         <label>Baseline Value (read-only) <span id="baselineValue">0.000</span> · engine <span id="baselineValueEngine">0.000</span></label>
+        <div class="dev-buttons">
+          <button id="baselineControlButton" type="button">Set Baseline</button>
+        </div>
+        <div class="small" id="baselineStatusLabel">Baseline: Auto</div>
       </div>
 
       <div class="dev-section"><h4>Detection</h4>
@@ -94,6 +98,6 @@
     </div>
   </div>
 
-  <script type="module" src="./js/main.js?v=157control"></script>
+  <script type="module" src="./js/main.js?v=158baseline"></script>
 </body>
 </html>
