@@ -30,6 +30,16 @@ function computePeakNorm(freqData) {
   return peak / 255;
 }
 
+function computeFrequencyRms(freqData) {
+  if (!freqData || freqData.length === 0) return 0;
+  let sumSquares = 0;
+  for (let i = 0; i < freqData.length; i++) {
+    const normalized = freqData[i] / 255;
+    sumSquares += normalized * normalized;
+  }
+  return Math.sqrt(sumSquares / freqData.length);
+}
+
 export class AudioEngine {
   constructor() {
     this.ctx = null;
@@ -167,6 +177,10 @@ export class AudioEngine {
       midsRaw: 0,
       highsRaw: 0,
       observedEnergy: 0,
+      normalizedFreqRms: 0,
+      preGainSignal: 0,
+      postGainSignal: 0,
+      finalSignal: 0,
       rawEnergy: 0,
       signalEnergy: 0,
       gatedEnergy: 0,
@@ -264,8 +278,8 @@ export class AudioEngine {
       this.inputGain = this.ctx.createGain();
       this.inputGain.gain.value = 1.0;
       this.analyser = this.ctx.createAnalyser();
-      this.analyser.fftSize = CONFIG.audio.fftSize;
-      this.analyser.smoothingTimeConstant = clamp(this.tuning.smoothing ?? 0.18, 0, 0.95);
+      this.analyser.fftSize = clamp(Number(CONFIG.audio.fftSize ?? 2048), 1024, 2048);
+      this.analyser.smoothingTimeConstant = clamp(this.tuning.smoothing ?? 0.18, 0, 0.5);
       this.silentMonitor = this.ctx.createGain();
       this.silentMonitor.gain.value = 0;
 
@@ -347,11 +361,12 @@ export class AudioEngine {
     this.tuning.holdTime = clamp(Number(this.tuning.holdTime ?? 90), 10, 3000);
     this.tuning.fadeTime = clamp(Number(this.tuning.fadeTime ?? 260), 10, 3000);
     this.tuning.responseCurve = clamp(Number(this.tuning.responseCurve ?? 1.5), 1, 2.5);
+    this.tuning.smoothing = clamp(Number(this.tuning.smoothing ?? 0.18), 0, 0.5);
     this.tuning.bassWeight = clamp(Number(this.tuning.bassWeight ?? 0.26), 0, 1.2);
     this.tuning.midsWeight = clamp(Number(this.tuning.midsWeight ?? 0.2), 0, 1.2);
     this.tuning.highsWeight = clamp(Number(this.tuning.highsWeight ?? 0.1), 0, 1.2);
     if (this.analyser) {
-      this.analyser.smoothingTimeConstant = clamp(this.tuning.smoothing ?? 0.18, 0, 0.95);
+      this.analyser.smoothingTimeConstant = clamp(this.tuning.smoothing ?? 0.18, 0, 0.5);
     }
   }
 
@@ -548,6 +563,10 @@ export class AudioEngine {
         midsRaw: 0,
         highsRaw: 0,
         observedEnergy: 0,
+        normalizedFreqRms: 0,
+        preGainSignal: 0,
+        postGainSignal: 0,
+        finalSignal: 0,
         rawEnergy: idle.energy,
         signalEnergy: 0,
         gatedEnergy: idle.energy,
@@ -593,18 +612,22 @@ export class AudioEngine {
     const rawGuitar = this.averageRange(700, 3300);
     const rms = this.computeRms();
     const peakNorm = computePeakNorm(this.freqData);
+    const normalizedFreqRms = computeFrequencyRms(this.freqData);
+    const binPopulation = this.freqData.some((value) => value > 0);
 
-    const baseEnergy =
+    const baseEnergyNormalized =
       rawBass * 0.36 +
       rawLowMid * 0.2 +
       rawMids * 0.24 +
       rawHighs * 0.1 +
       rms * 0.95 +
-      peakNorm * 0.1;
+      peakNorm * 0.1 +
+      normalizedFreqRms * 0.35;
 
-    const targetGain = clamp(0.45 / Math.max(0.06, baseEnergy), 0.9, 2.8);
+    const targetGain = clamp(0.45 / Math.max(0.04, baseEnergyNormalized), 1.05, 3.6);
     this.calibratedGain = followEnvelope(this.calibratedGain, targetGain, 1.6, 0.5, dt);
     const tunedGain = this.calibratedGain * this.tuning.micSensitivity;
+    const signalFloorMultiplier = clamp(CONFIG.audio.inputFloorMultiplier ?? 0.5, 0.1, 0.9);
 
     const scaledBass = rawBass * tunedGain;
     const scaledLowMid = rawLowMid * tunedGain;
@@ -618,15 +641,13 @@ export class AudioEngine {
     const midsWeight = clamp(this.tuning.midsWeight ?? 0.2, 0, 1.2);
     const highsWeight = clamp(this.tuning.highsWeight ?? 0.1, 0, 1.2);
 
-    const observedEnergy = clamp(
+    const observedEnergyUnclamped =
       scaledBass * bassWeight +
         scaledLowMid * 0.14 +
         scaledMids * midsWeight +
         scaledHighs * highsWeight +
-        scaledRms * 0.78,
-      0,
-      1
-    );
+        scaledRms * 0.78;
+    const observedEnergy = clamp(observedEnergyUnclamped, 0, 1);
 
     const adaptiveCfg = CONFIG.audio.adaptiveNoiseFloor ?? {};
     const floorRiseSeconds = Math.max(6, adaptiveCfg.riseSeconds ?? 9);
@@ -686,11 +707,15 @@ export class AudioEngine {
     const activeAboveFloor = clamp(adaptiveCfg.activeAboveFloor ?? 0.018, 0.005, 0.08);
     const floorAdjusted = this.baselineEnergy + floorBias;
     const deadZone = clamp(adaptiveCfg.deadZone ?? 0.014, 0.008, 0.03);
+    const preGainSignal = clamp(baseEnergyNormalized, 0, 1);
+    const postGainSignal = clamp(preGainSignal * tunedGain, 0, 1.5);
     const rmsSignal = Math.max(0, scaledRms - floorAdjusted);
-    this.trueSignal = rmsSignal < deadZone ? 0 : rmsSignal;
+    const floorSignal = preGainSignal * signalFloorMultiplier;
+    const signalWithFloor = Math.max(rmsSignal, floorSignal);
+    this.trueSignal = signalWithFloor < deadZone ? 0 : signalWithFloor;
     this.activeAboveBaseline = this.trueSignal >= activeAboveFloor;
     const signalCeiling = clamp(adaptiveCfg.signalCeiling ?? 0.2, 0.06, 0.45);
-    this.raw.rms = floorSubtractNormalize(scaledRms, floorAdjusted, signalCeiling, deadZone);
+    this.raw.rms = floorSubtractNormalize(signalWithFloor, 0, signalCeiling, deadZone);
     this.raw.energy = this.raw.rms;
     const signalEnergy = this.raw.energy;
 
@@ -900,6 +925,10 @@ export class AudioEngine {
       midsRaw: rawMids,
       highsRaw: rawHighs,
       observedEnergy,
+      normalizedFreqRms,
+      preGainSignal,
+      postGainSignal,
+      finalSignal: this.trueSignal,
       rawEnergy: this.raw.energy,
       signalEnergy,
       gatedEnergy,
@@ -964,6 +993,10 @@ export class AudioEngine {
         midsRaw: Number(this.debugState.midsRaw.toFixed(6)),
         highsRaw: Number(this.debugState.highsRaw.toFixed(6)),
         observedEnergy: Number(this.debugState.observedEnergy.toFixed(3)),
+        normalizedFreqRms: Number((this.debugState.normalizedFreqRms ?? 0).toFixed(6)),
+        preGainSignal: Number((this.debugState.preGainSignal ?? 0).toFixed(6)),
+        postGainSignal: Number((this.debugState.postGainSignal ?? 0).toFixed(6)),
+        finalSignal: Number((this.debugState.finalSignal ?? 0).toFixed(6)),
         rawEnergy: Number(this.debugState.rawEnergy.toFixed(3)),
         signalEnergy: Number(this.debugState.signalEnergy.toFixed(3)),
         gatedEnergy: Number(this.debugState.gatedEnergy.toFixed(3)),
@@ -987,6 +1020,7 @@ export class AudioEngine {
         hardSilence: this.debugState.hardSilence,
         motionFrozen: this.debugState.motionFrozen,
         analyserProbe: Number(analyserProbe.toFixed(6)),
+        binsPopulated: binPopulation,
         timeSample: this.floatTimeData
           ? Array.from(this.floatTimeData.slice(0, 6)).map((v) => Number(v.toFixed(4)))
           : [],
