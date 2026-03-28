@@ -23,8 +23,6 @@ export class Renderer {
     this.autoSwitchTimer = 0;
     this.autoCycleSeconds = CONFIG.modes.autoCycleSeconds;
 
-    this.motionPhase = 0;
-    this.lastMotionPhase = 0;
     this.motionDebug = { baseFlow: 0, motionScale: 1, finalMotion: 0, finalTransport: 0 };
     this.lastTs = performance.now();
     this.lastActiveSignalAt = this.lastTs;
@@ -196,20 +194,16 @@ export class Renderer {
     this.silenceTimer = Math.max(0, (now - this.lastActiveSignalAt) / 1000);
 
     const pulseDrive = clamp(audio.pulseDrive ?? 0, 0, 1.5);
-    const transport = clamp(audio.transport ?? 0, 0, 1);
-    const motionScale = clamp(settings.motionScale ?? 0.35, 0, 2);
-    const baseFlow = clamp(settings.baseFlow ?? 0.02, 0, 1);
-    const maxSpeed = clamp(settings.maxSpeed ?? 0.6, 0.01, 2);
-    const finalTransport = transport * motionScale;
-    const finalMotion = Math.min(baseFlow + finalTransport, maxSpeed);
-
-    this.motionPhase += finalMotion * dt;
+    const motionScale = clamp(audio.motionScale ?? settings.motionScale ?? 0.35, 0, 2);
+    const baseFlow = clamp(audio.baseFlow ?? settings.baseFlow ?? 0.02, 0, 1);
+    const finalTransport = clamp(audio.finalTransport ?? 0, 0, 4);
+    const finalMotion = clamp(audio.finalMotion ?? 0, 0, 4);
+    const motionTime = clamp(audio.motionTime ?? 0, 0, Number.MAX_SAFE_INTEGER);
+    const motionDelta = finalMotion * dt;
     this.motionDebug.baseFlow = baseFlow;
     this.motionDebug.motionScale = motionScale;
     this.motionDebug.finalTransport = finalTransport;
     this.motionDebug.finalMotion = finalMotion;
-    const motionDelta = this.motionPhase - this.lastMotionPhase;
-    this.lastMotionPhase = this.motionPhase;
 
     const events = this.eventsEngine.update(audio, dt);
 
@@ -224,12 +218,12 @@ export class Renderer {
     const blackout = computeBlackout(audio.silence, this.silenceTimer, events.blackoutPulse, CONFIG);
 
     try {
-      this.visual.render({ mode: this.mode, time: this.motionPhase, motionEnabled: finalMotion > 0, dt, blackout: blackout.fade, audio, events });
+      this.visual.render({ mode: this.mode, time: motionTime, motionEnabled: finalMotion > 0, dt, blackout: blackout.fade, audio, events });
       this.crashed = false;
     } catch (err) {
       if (!this.crashed) console.error("Visualizer render failed; activating fallback.", err);
       if (!this.usingFallback) this.activateFallback("runtime");
-      this.visual.render?.({ mode: this.mode, time: this.motionPhase, motionEnabled: finalMotion > 0, blackout: blackout.fade, audio });
+      this.visual.render?.({ mode: this.mode, time: motionTime, motionEnabled: finalMotion > 0, blackout: blackout.fade, audio });
       this.crashed = true;
     }
 
@@ -266,7 +260,7 @@ export class Renderer {
         motionScale: Number(motionScale.toFixed(4)),
         finalTransport: Number(finalTransport.toFixed(4)),
         finalMotion: Number(finalMotion.toFixed(4)),
-        maxSpeed: Number(maxSpeed.toFixed(4)),
+        maxSpeed: Number((audio.maxSpeed ?? settings.maxSpeed ?? 0).toFixed(4)),
         motionDelta: Number(motionDelta.toFixed(5)),
       });
     }
