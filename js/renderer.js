@@ -68,7 +68,7 @@ export class Renderer {
       mode: this.mode,
       settings: this.getCurrentModeActiveSettings(),
       rawEnergy: debug.rawEnergy ?? 0,
-      signalAboveBaseline: !!debug.activeAboveBaseline,
+      signalAboveBaseline: !!(debug.motionDecision?.signalAboveBaseline ?? debug.activeAboveBaseline),
       sustainEnergy: debug.sustainEnergy ?? 0,
       motionEnabled: !!debug.motionEnabled,
       transport: debug.transport ?? 0,
@@ -248,6 +248,8 @@ export class Renderer {
         ` tr:${(dbg.transport ?? 0).toFixed(3)}` +
         ` fm:${this.motionDebug.finalMotion.toFixed(3)}` +
         ` base:${(dbg.noiseFloor ?? 0).toFixed(3)}` +
+        ` bl:${dbg.baselineLearning ? "L" : "-"}` +
+        ` lk:${dbg.baselineLocked ? "Y" : "N"}` +
         ` act:${(dbg.activateThreshold ?? settings.activateThreshold ?? 0).toFixed(3)}` +
         ` deact:${(dbg.deactivateThreshold ?? settings.deactivateThreshold ?? 0).toFixed(3)}` +
         ` hold:${Math.round(dbg.holdTimeMs ?? settings.holdTime ?? 0)}` +

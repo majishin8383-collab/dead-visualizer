@@ -77,6 +77,12 @@ export class AudioEngine {
 
     this.noiseFloor = 0.01;
     this.baselineEnergy = 0.02;
+    this.baselineLearning = false;
+    this.baselineLocked = false;
+    this.lockedBaselineValue = null;
+    this.baselineLearningValue = this.baselineEnergy;
+    this.baselineLearningElapsed = 0;
+    this.baselineSamples = [];
     this.bandNoiseFloor = {
       bass: 0.01,
       lowMid: 0.01,
@@ -191,7 +197,10 @@ export class AudioEngine {
       deactivateThreshold: 0,
       holdTimeMs: 0,
       fadeTimeMs: 0,
-      baselineLocked: 0,
+      baselineLearning: false,
+      baselineLocked: false,
+      lockedBaselineValue: 0,
+      baselineValue: 0,
       modeParameters: {},
       initError: "",
     };
@@ -352,6 +361,49 @@ export class AudioEngine {
 
   getLastInitError() {
     return this.lastInitError;
+  }
+
+  startBaselineLearning() {
+    this.baselineLearning = true;
+    this.baselineLocked = false;
+    this.lockedBaselineValue = null;
+    this.baselineLearningElapsed = 0;
+    this.baselineSamples = [];
+    this.baselineLearningValue = this.baselineEnergy;
+  }
+
+  computeLearnedBaseline() {
+    if (!this.baselineSamples.length) return clamp(this.baselineLearningValue ?? this.baselineEnergy, 0, 0.95);
+    const cfg = CONFIG.audio.manualBaseline ?? {};
+    const percentile = clamp(cfg.floorPercentile ?? 0.3, 0.05, 0.95);
+    const sorted = [...this.baselineSamples].sort((a, b) => a - b);
+    const idx = Math.floor((sorted.length - 1) * percentile);
+    return clamp(sorted[clamp(idx, 0, sorted.length - 1)], 0, 0.95);
+  }
+
+  lockBaseline() {
+    const selectedBaseline = clamp(
+      this.baselineSamples.length ? this.computeLearnedBaseline() : this.baselineLearningValue ?? this.baselineEnergy,
+      0,
+      0.95
+    );
+    this.baselineEnergy = selectedBaseline;
+    this.lockedBaselineValue = selectedBaseline;
+    this.baselineLocked = true;
+    this.baselineLearning = false;
+    this.baselineLearningValue = selectedBaseline;
+    this.baselineLearningElapsed = 0;
+    this.baselineSamples = [];
+  }
+
+  getBaselineState() {
+    return {
+      baselineLearning: this.baselineLearning,
+      baselineLocked: this.baselineLocked,
+      lockedBaselineValue: this.baselineLocked ? this.lockedBaselineValue ?? this.baselineEnergy : null,
+      currentBaselineValue: this.baselineEnergy,
+      learningElapsed: this.baselineLearningElapsed,
+    };
   }
 
   evaluateMusicStructure({ dt, onset, pulse, bass, lowMid, mids, highs, trueSignal, activeAboveFloor }) {
@@ -521,7 +573,10 @@ export class AudioEngine {
         deactivateThreshold: this.tuning.deactivateThreshold ?? 0,
         holdTimeMs: this.tuning.holdTime ?? 0,
         fadeTimeMs: this.tuning.fadeTime ?? 0,
-        baselineLocked: this.baselineEnergy,
+        baselineLearning: this.baselineLearning,
+        baselineLocked: this.baselineLocked,
+        lockedBaselineValue: this.lockedBaselineValue ?? 0,
+        baselineValue: this.baselineEnergy,
         modeParameters: { ...this.tuning },
       };
       return idle;
@@ -582,11 +637,28 @@ export class AudioEngine {
     const floorCandidate = Math.min(observedEnergy, this.baselineEnergy + captureHeadroom);
     const burstSuppression = clamp(adaptiveCfg.burstRiseSuppress ?? 0.12, 0.02, 1);
     const floorAlpha = floorCandidate > this.baselineEnergy ? riseAlpha * burstSuppression : fallAlpha;
-    this.baselineEnergy = clamp(
-      this.baselineEnergy + (floorCandidate - this.baselineEnergy) * floorAlpha,
-      0,
-      0.95
-    );
+    const manualBaselineCfg = CONFIG.audio.manualBaseline ?? {};
+    const learningSeconds = clamp(manualBaselineCfg.learningSeconds ?? 2.0, 1, 3);
+    const minSamples = Math.max(10, manualBaselineCfg.minSamples ?? 25);
+    if (this.baselineLearning) {
+      this.baselineLearningElapsed += dt;
+      this.baselineSamples.push(clamp(observedEnergy, 0, 1));
+      if (this.baselineSamples.length > 240) this.baselineSamples.shift();
+      const learnedBaseline = this.computeLearnedBaseline();
+      this.baselineLearningValue = learnedBaseline;
+      this.baselineEnergy = learnedBaseline;
+      if (this.baselineLearningElapsed >= learningSeconds && this.baselineSamples.length >= minSamples) {
+        this.lockBaseline();
+      }
+    } else if (!this.baselineLocked) {
+      this.baselineEnergy = clamp(
+        this.baselineEnergy + (floorCandidate - this.baselineEnergy) * floorAlpha,
+        0,
+        0.95
+      );
+    } else {
+      this.baselineEnergy = clamp(this.lockedBaselineValue ?? this.baselineEnergy, 0, 0.95);
+    }
     const bandRiseSeconds = Math.max(6, adaptiveCfg.bandRiseSeconds ?? 10);
     const bandFallSeconds = Math.max(6, adaptiveCfg.bandFallSeconds ?? 8);
     const bandRiseAlpha = (1 - Math.exp(-dt / bandRiseSeconds)) * burstSuppression;
@@ -594,6 +666,7 @@ export class AudioEngine {
     const bandCaptureHeadroom = clamp(adaptiveCfg.bandCaptureHeadroom ?? 0.035, 0.008, 0.12);
     const updateBandFloor = (key, value) => {
       const currentFloor = this.bandNoiseFloor[key] ?? 0.01;
+      if (this.baselineLocked) return clamp(currentFloor, 0, 0.95);
       const candidate = Math.min(value, currentFloor + bandCaptureHeadroom);
       const alpha = candidate > currentFloor ? bandRiseAlpha : bandFallAlpha;
       this.bandNoiseFloor[key] = clamp(currentFloor + (candidate - currentFloor) * alpha, 0, 0.95);
@@ -860,7 +933,10 @@ export class AudioEngine {
       deactivateThreshold,
       holdTimeMs: this.tuning.holdTime ?? 0,
       fadeTimeMs: this.tuning.fadeTime ?? 0,
-      baselineLocked: this.baselineEnergy,
+      baselineLearning: this.baselineLearning,
+      baselineLocked: this.baselineLocked,
+      lockedBaselineValue: this.lockedBaselineValue ?? 0,
+      baselineValue: this.baselineEnergy,
       modeParameters: { ...this.tuning, bassWeight, midsWeight, highsWeight },
     };
 
@@ -951,7 +1027,10 @@ export class AudioEngine {
       deactivateThreshold,
       holdTimeMs: this.tuning.holdTime ?? 0,
       fadeTimeMs: this.tuning.fadeTime ?? 0,
-      baselineLocked: this.baselineEnergy,
+      baselineLearning: this.baselineLearning,
+      baselineLocked: this.baselineLocked,
+      lockedBaselineValue: this.lockedBaselineValue ?? 0,
+      baselineValue: this.baselineEnergy,
       modeParameters: { ...this.tuning, bassWeight, midsWeight, highsWeight },
     };
   }

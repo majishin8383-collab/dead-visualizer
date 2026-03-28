@@ -34,6 +34,8 @@ const saveModeSettingsButton = byId("saveModeSettingsButton");
 const resetModeDefaultsButton = byId("resetModeDefaultsButton");
 const saveModeSettingsStatus = byId("saveModeSettingsStatus");
 const runtimeDebugPanel = byId("runtimeDebugPanel");
+const baselineControlButton = byId("baselineControlButton");
+const baselineStatusLabel = byId("baselineStatusLabel");
 
 const audioEngine = new AudioEngine();
 const eventsEngine = new EventsEngine();
@@ -87,9 +89,24 @@ function syncControlsFromRuntime() {
 function refreshRuntimePanel() {
   const state = renderer.getRuntimeState();
   const debug = audioEngine.getDebugState?.() ?? {};
+  const baselineState = audioEngine.getBaselineState?.() ?? {};
   const baseline = Number(state.baseline ?? 0);
   byId("baselineValue").textContent = baseline.toFixed(3);
   byId("baselineValueEngine").textContent = baseline.toFixed(3);
+
+  if (baselineControlButton) {
+    baselineControlButton.textContent = baselineState.baselineLearning ? "Lock Baseline" : "Set Baseline";
+  }
+  if (baselineStatusLabel) {
+    const status = baselineState.baselineLearning
+      ? "Learning"
+      : baselineState.baselineLocked
+      ? "Locked"
+      : "Auto";
+    const lockedValue = Number(baselineState.lockedBaselineValue ?? 0);
+    baselineStatusLabel.textContent =
+      status === "Locked" ? `Baseline: Locked (${lockedValue.toFixed(3)})` : `Baseline: ${status}`;
+  }
 
   const inUse = state.settings ?? {};
   Object.entries(controls).forEach(([key, refs]) => {
@@ -97,6 +114,9 @@ function refreshRuntimePanel() {
   });
 
   runtimeDebugPanel.textContent =
+    `baselineLearning: ${baselineState.baselineLearning ? "yes" : "no"} | ` +
+    `baselineLocked: ${baselineState.baselineLocked ? "yes" : "no"} | ` +
+    `lockedBaselineValue: ${fmt(baselineState.lockedBaselineValue ?? 0, 3)} | ` +
     `raw energy: ${fmt(state.rawEnergy, 3)} | ` +
     `signal above baseline: ${state.signalAboveBaseline} | ` +
     `sustainEnergy: ${fmt(state.sustainEnergy, 3)} | ` +
@@ -201,6 +221,15 @@ if (devPanel) {
   blackoutButton.addEventListener("click", () => eventsEngine.triggerBlackoutPulse());
   reconnectButton.addEventListener("click", connectAudio);
   fsDevButton.addEventListener("click", enterFullscreen);
+  baselineControlButton?.addEventListener("click", () => {
+    const baselineState = audioEngine.getBaselineState?.() ?? {};
+    if (baselineState.baselineLearning) {
+      audioEngine.lockBaseline?.();
+    } else {
+      audioEngine.startBaselineLearning?.();
+    }
+    refreshRuntimePanel();
+  });
 
   devPanelToggle.addEventListener("click", () => devPanelContent.classList.toggle("collapsed"));
   devMenuToggle.addEventListener("click", () => hud.classList.toggle("hidden"));
@@ -220,6 +249,7 @@ if (devPanel) {
 function toggleUiVisibility() {
   overlay.classList.toggle("ui-hidden");
   devPanel.classList.toggle("ui-hidden");
+  startScreen.classList.toggle("ui-hidden");
 }
 
 window.addEventListener("keydown", (e) => {

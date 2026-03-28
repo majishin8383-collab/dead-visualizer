@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-157-full-control-panel",
+  buildTag: "dv-158-set-baseline-button",
   devControls: {
     enabled: true,
   },
@@ -115,6 +115,11 @@ export const CONFIG = {
       activeAboveFloor: 0.018,
       signalCeiling: 0.2,
       burstRiseSuppress: 0.12,
+    },
+    manualBaseline: {
+      learningSeconds: 2.0,
+      minSamples: 25,
+      floorPercentile: 0.3,
     },
     tuning: {
       micSensitivity: 1.0,
