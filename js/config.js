@@ -1,5 +1,5 @@
 export const CONFIG = {
-  buildTag: "dv-158-set-baseline-button",
+  buildTag: "dv-159-input-gain-fix",
   devControls: {
     enabled: true,
   },
@@ -102,7 +102,8 @@ export const CONFIG = {
 
   audio: {
     fftSize: 2048,
-    smoothingTimeConstant: 0.52,
+    smoothingTimeConstant: 0.32,
+    inputFloorMultiplier: 0.5,
     echoCancellation: false,
     noiseSuppression: false,
     autoGainControl: false,
