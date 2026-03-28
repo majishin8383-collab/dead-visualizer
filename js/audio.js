@@ -56,13 +56,20 @@ export class AudioEngine {
     this.hardSilence = true;
     this.motionFrozen = true;
     this.motionEnableHold = 0;
+    this.lastStrongSignalAt = 0;
+    this.signalLatchActive = false;
     this.motionDecision = {
       signalAboveBaseline: false,
       sustainActive: false,
       transientActive: false,
+      recentActivity: false,
+      strongSignal: false,
       sustainEnergy: 0,
       sustainThreshold: 0,
       transientLevel: 0,
+      activateThreshold: 0,
+      deactivateThreshold: 0,
+      timeSinceLastStrongSignal: 0,
     };
 
     this.lastUpdateAt = performance.now();
@@ -448,9 +455,14 @@ export class AudioEngine {
           signalAboveBaseline: false,
           sustainActive: false,
           transientActive: false,
+          recentActivity: false,
+          strongSignal: false,
           sustainEnergy: 0,
           sustainThreshold: 0,
           transientLevel: 0,
+          activateThreshold: 0,
+          deactivateThreshold: 0,
+          timeSinceLastStrongSignal: 0,
         },
       };
       this.debugState = {
@@ -677,7 +689,23 @@ export class AudioEngine {
     const transientLevel = clamp(safeOnset * 0.62 + safePeak * 0.38, 0, 1);
     const transientActive = transientLevel > 0.085;
     const sustainActive = safeSustain > sustainThreshold;
-    const motionGateTarget = this.activeAboveBaseline && (sustainActive || transientActive);
+    const signalLevel = clamp(this.trueSignal / Math.max(1e-5, activeAboveFloor * 2.4), 0, 1);
+    const activateThreshold = 0.34;
+    const deactivateThreshold = 0.2;
+    const strongSignal = signalLevel >= activateThreshold;
+    if (strongSignal) {
+      this.lastStrongSignalAt = now;
+    }
+    const recentActivityWindowSeconds = 1.6;
+    const timeSinceLastStrongSignal = this.lastStrongSignalAt > 0 ? (now - this.lastStrongSignalAt) / 1000 : Infinity;
+    const recentActivity = timeSinceLastStrongSignal <= recentActivityWindowSeconds;
+    if (this.signalLatchActive) {
+      this.signalLatchActive = signalLevel >= deactivateThreshold;
+    } else if (strongSignal) {
+      this.signalLatchActive = true;
+    }
+    const signalAboveBaseline = this.activeAboveBaseline && this.signalLatchActive;
+    const motionGateTarget = signalAboveBaseline && (sustainActive || recentActivity);
     const motionEnableSeconds = 0.09;
     const motionDisableSeconds = 0.26;
     if (motionGateTarget) {
@@ -693,15 +721,20 @@ export class AudioEngine {
     }
     this.hardSilence = !this.motionEnabled;
     this.motionDecision = {
-      signalAboveBaseline: this.activeAboveBaseline,
+      signalAboveBaseline,
       sustainActive,
       transientActive,
+      recentActivity,
+      strongSignal,
       sustainEnergy: safeSustain,
       sustainThreshold,
       transientLevel,
+      activateThreshold,
+      deactivateThreshold,
+      timeSinceLastStrongSignal: Number.isFinite(timeSinceLastStrongSignal) ? timeSinceLastStrongSignal : -1,
     };
     const silenceGate = clamp((1 - this.smooth.silence - 0.08) / 0.28, 0, 1);
-    const activityGateTarget = this.activeAboveBaseline ? clamp(0.35 + confidence * 0.65, 0, 1) : 0;
+    const activityGateTarget = signalAboveBaseline ? clamp(0.35 + confidence * 0.65, 0, 1) : 0;
     this.pulse.motionGate = followEnvelope(this.pulse.motionGate, activityGateTarget, 8, 5.5, dt);
     const activityGate = this.pulse.motionGate;
     let pulseDriveTarget =
