@@ -187,6 +187,12 @@ export class AudioEngine {
       trueSignal: 0,
       activeAboveBaseline: false,
       motionTime: 0,
+      activateThreshold: 0,
+      deactivateThreshold: 0,
+      holdTimeMs: 0,
+      fadeTimeMs: 0,
+      baselineLocked: 0,
+      modeParameters: {},
       initError: "",
     };
   }
@@ -250,7 +256,7 @@ export class AudioEngine {
       this.inputGain.gain.value = 1.0;
       this.analyser = this.ctx.createAnalyser();
       this.analyser.fftSize = CONFIG.audio.fftSize;
-      this.analyser.smoothingTimeConstant = this.tuning.smoothing;
+      this.analyser.smoothingTimeConstant = clamp(this.tuning.smoothing ?? 0.18, 0, 0.95);
       this.silentMonitor = this.ctx.createGain();
       this.silentMonitor.gain.value = 0;
 
@@ -324,8 +330,19 @@ export class AudioEngine {
       ...this.tuning,
       ...partial,
     };
+    this.tuning.micSensitivity = clamp(Number(this.tuning.micSensitivity ?? 1), 0.1, 4);
+    this.tuning.noiseGate = clamp(Number(this.tuning.noiseGate ?? 0.03), 0, 0.4);
+    this.tuning.sustainThreshold = clamp(Number(this.tuning.sustainThreshold ?? 0.09), 0.02, 0.4);
+    this.tuning.activateThreshold = clamp(Number(this.tuning.activateThreshold ?? 0.34), 0.05, 1);
+    this.tuning.deactivateThreshold = clamp(Number(this.tuning.deactivateThreshold ?? 0.2), 0.01, this.tuning.activateThreshold);
+    this.tuning.holdTime = clamp(Number(this.tuning.holdTime ?? 90), 10, 3000);
+    this.tuning.fadeTime = clamp(Number(this.tuning.fadeTime ?? 260), 10, 3000);
+    this.tuning.responseCurve = clamp(Number(this.tuning.responseCurve ?? 1.5), 1, 2.5);
+    this.tuning.bassWeight = clamp(Number(this.tuning.bassWeight ?? 0.26), 0, 1.2);
+    this.tuning.midsWeight = clamp(Number(this.tuning.midsWeight ?? 0.2), 0, 1.2);
+    this.tuning.highsWeight = clamp(Number(this.tuning.highsWeight ?? 0.1), 0, 1.2);
     if (this.analyser) {
-      this.analyser.smoothingTimeConstant = clamp(this.tuning.smoothing, 0, 0.95);
+      this.analyser.smoothingTimeConstant = clamp(this.tuning.smoothing ?? 0.18, 0, 0.95);
     }
   }
 
@@ -500,6 +517,12 @@ export class AudioEngine {
         trueSignal: 0,
         activeAboveBaseline: false,
         motionTime: 0,
+        activateThreshold: this.tuning.activateThreshold ?? 0,
+        deactivateThreshold: this.tuning.deactivateThreshold ?? 0,
+        holdTimeMs: this.tuning.holdTime ?? 0,
+        fadeTimeMs: this.tuning.fadeTime ?? 0,
+        baselineLocked: this.baselineEnergy,
+        modeParameters: { ...this.tuning },
       };
       return idle;
     }
@@ -536,11 +559,15 @@ export class AudioEngine {
     const scaledGuitar = rawGuitar * tunedGain;
     const scaledRms = rms * tunedGain;
 
+    const bassWeight = clamp(this.tuning.bassWeight ?? 0.26, 0, 1.2);
+    const midsWeight = clamp(this.tuning.midsWeight ?? 0.2, 0, 1.2);
+    const highsWeight = clamp(this.tuning.highsWeight ?? 0.1, 0, 1.2);
+
     const observedEnergy = clamp(
-      scaledBass * 0.26 +
+      scaledBass * bassWeight +
         scaledLowMid * 0.14 +
-        scaledMids * 0.2 +
-        scaledHighs * 0.1 +
+        scaledMids * midsWeight +
+        scaledHighs * highsWeight +
         scaledRms * 0.78,
       0,
       1
@@ -637,7 +664,7 @@ export class AudioEngine {
     this.lastEnergy = this.raw.energy;
     const gatedEnergy = this.raw.energy;
 
-    const smoothingMul = clamp(1.2 - this.tuning.smoothing, 0.2, 2.0);
+    const smoothingMul = clamp(1.2 - (this.tuning.smoothing ?? 0.18), 0.2, 2.0);
     this.smooth.bass = followEnvelope(this.smooth.bass, this.raw.bass, 12 * smoothingMul, 5 * smoothingMul, dt);
     this.smooth.lowMid = followEnvelope(this.smooth.lowMid, this.raw.lowMid, 11 * smoothingMul, 4.5 * smoothingMul, dt);
     this.smooth.mids = followEnvelope(this.smooth.mids, this.raw.mids, 12 * smoothingMul, 5 * smoothingMul, dt);
@@ -685,13 +712,13 @@ export class AudioEngine {
     });
     const structureActive = !!musicStructure.active;
     const confidence = finiteOr(musicStructure.confidence, 0);
-    const sustainThreshold = clamp(Math.max(this.tuning.noiseGate * 0.82, 0.055), 0.04, 0.2);
+    const sustainThreshold = clamp(this.tuning.sustainThreshold ?? Math.max(this.tuning.noiseGate * 0.82, 0.055), 0.02, 0.4);
     const transientLevel = clamp(safeOnset * 0.62 + safePeak * 0.38, 0, 1);
     const transientActive = transientLevel > 0.085;
     const sustainActive = safeSustain > sustainThreshold;
     const signalLevel = clamp(this.trueSignal / Math.max(1e-5, activeAboveFloor * 2.4), 0, 1);
-    const activateThreshold = 0.34;
-    const deactivateThreshold = 0.2;
+    const activateThreshold = clamp(this.tuning.activateThreshold ?? 0.34, 0.05, 1);
+    const deactivateThreshold = clamp(this.tuning.deactivateThreshold ?? 0.2, 0.01, activateThreshold);
     const strongSignal = signalLevel >= activateThreshold;
     if (strongSignal) {
       this.lastStrongSignalAt = now;
@@ -706,8 +733,8 @@ export class AudioEngine {
     }
     const signalAboveBaseline = this.activeAboveBaseline && this.signalLatchActive;
     const motionGateTarget = signalAboveBaseline && (sustainActive || recentActivity);
-    const motionEnableSeconds = 0.09;
-    const motionDisableSeconds = 0.26;
+    const motionEnableSeconds = Math.max(0.01, (this.tuning.holdTime ?? 90) / 1000);
+    const motionDisableSeconds = Math.max(0.01, (this.tuning.fadeTime ?? 260) / 1000);
     if (motionGateTarget) {
       this.motionEnableHold = Math.min(motionEnableSeconds, this.motionEnableHold + dt);
       if (this.motionEnableHold >= motionEnableSeconds) {
@@ -771,7 +798,8 @@ export class AudioEngine {
     this.smooth.transport = followEnvelope(this.smooth.transport, effectiveDrive, 9, 3.2, dt);
     this.smooth.transport = finiteOr(this.smooth.transport, 0);
     const rawTransport = hardIdle ? 0 : clamp(this.smooth.transport, 0, 1);
-    this.transport = clamp(Math.pow(rawTransport, 1.5), 0, 1);
+    const responseCurve = clamp(this.tuning.responseCurve ?? 1.5, 1, 2.5);
+    this.transport = clamp(Math.pow(rawTransport, responseCurve), 0, 1);
 
     const signalMix = clamp(this.trueSignal / Math.max(1e-5, signalCeiling), 0, 1);
     const reactiveMix = signalMix;
@@ -828,6 +856,12 @@ export class AudioEngine {
       rhythmConfidence: confidence,
       rhythmActive: structureActive,
       motionTime: this.motionPhase,
+      activateThreshold,
+      deactivateThreshold,
+      holdTimeMs: this.tuning.holdTime ?? 0,
+      fadeTimeMs: this.tuning.fadeTime ?? 0,
+      baselineLocked: this.baselineEnergy,
+      modeParameters: { ...this.tuning, bassWeight, midsWeight, highsWeight },
     };
 
     if (CONFIG.audio.debugTransport && now - this.lastDebugAt > 400) {
@@ -913,6 +947,12 @@ export class AudioEngine {
       motionEnabled: this.motionEnabled,
       hardSilence: this.hardSilence,
       motionFrozen: this.motionFrozen,
+      activateThreshold,
+      deactivateThreshold,
+      holdTimeMs: this.tuning.holdTime ?? 0,
+      fadeTimeMs: this.tuning.fadeTime ?? 0,
+      baselineLocked: this.baselineEnergy,
+      modeParameters: { ...this.tuning, bassWeight, midsWeight, highsWeight },
     };
   }
 }

@@ -3,64 +3,69 @@ import { Renderer } from "./renderer.js";
 import { EventsEngine } from "./events.js";
 import { CONFIG } from "./config.js";
 
-const canvas = document.getElementById("mainCanvas");
-const startButton = document.getElementById("startButton");
-const startScreen = document.getElementById("startScreen");
-const modeLabel = document.getElementById("modeLabel");
-const audioLabel = document.getElementById("audioLabel");
-const transportLabel = document.getElementById("transportLabel");
-const energyLabel = document.getElementById("energyLabel");
-const silenceLabel = document.getElementById("silenceLabel");
-const audioDebugLabel = document.getElementById("audioDebugLabel");
-const fsButton = document.getElementById("fsButton");
-const micButton = document.getElementById("micButton");
-const hud = document.getElementById("hud");
-const warmupStatus = document.getElementById("warmupStatus");
-const devPanel = document.getElementById("devPanel");
-const devPanelToggle = document.getElementById("devPanelToggle");
-const devPanelContent = document.getElementById("devPanelContent");
-const devMenuToggle = document.getElementById("devMenuToggle");
-const debugToggle = document.getElementById("debugToggle");
-const modeSelect = document.getElementById("modeSelect");
-const autoToggle = document.getElementById("autoToggle");
-const autoCycleDuration = document.getElementById("autoCycleDuration");
-const blackoutButton = document.getElementById("blackoutButton");
-const reconnectButton = document.getElementById("reconnectButton");
-const fsDevButton = document.getElementById("fsDevButton");
-const saveModeSettingsButton = document.getElementById("saveModeSettingsButton");
-const saveModeSettingsStatus = document.getElementById("saveModeSettingsStatus");
-const micSensitivity = document.getElementById("micSensitivity");
-const noiseGate = document.getElementById("noiseGate");
-const smoothing = document.getElementById("smoothing");
-const baselineTransport = document.getElementById("baselineTransport");
-const audioReactivity = document.getElementById("audioReactivity");
-const peakIntensity = document.getElementById("peakIntensity");
-const micSensitivityValue = document.getElementById("micSensitivityValue");
-const noiseGateValue = document.getElementById("noiseGateValue");
-const smoothingValue = document.getElementById("smoothingValue");
-const baselineTransportValue = document.getElementById("baselineTransportValue");
-const audioReactivityValue = document.getElementById("audioReactivityValue");
-const peakIntensityValue = document.getElementById("peakIntensityValue");
+const byId = (id) => document.getElementById(id);
+
+const canvas = byId("mainCanvas");
+const startButton = byId("startButton");
+const startScreen = byId("startScreen");
+const modeLabel = byId("modeLabel");
+const audioLabel = byId("audioLabel");
+const transportLabel = byId("transportLabel");
+const energyLabel = byId("energyLabel");
+const silenceLabel = byId("silenceLabel");
+const audioDebugLabel = byId("audioDebugLabel");
+const fsButton = byId("fsButton");
+const micButton = byId("micButton");
+const hud = byId("hud");
+const overlay = byId("overlay");
+const warmupStatus = byId("warmupStatus");
+const devPanel = byId("devPanel");
+const devPanelToggle = byId("devPanelToggle");
+const devPanelContent = byId("devPanelContent");
+const devMenuToggle = byId("devMenuToggle");
+const debugToggle = byId("debugToggle");
+const modeSelect = byId("modeSelect");
+const autoToggle = byId("autoToggle");
+const autoCycleDuration = byId("autoCycleDuration");
+const blackoutButton = byId("blackoutButton");
+const reconnectButton = byId("reconnectButton");
+const fsDevButton = byId("fsDevButton");
+const saveModeSettingsButton = byId("saveModeSettingsButton");
+const resetModeDefaultsButton = byId("resetModeDefaultsButton");
+const saveModeSettingsStatus = byId("saveModeSettingsStatus");
+const runtimeDebugPanel = byId("runtimeDebugPanel");
 
 const audioEngine = new AudioEngine();
 const eventsEngine = new EventsEngine();
+const renderer = new Renderer(canvas, audioEngine, eventsEngine, { modeLabel, transportLabel, energyLabel, silenceLabel, audioDebugLabel });
 
-const renderer = new Renderer(canvas, audioEngine, eventsEngine, {
-  modeLabel,
-  transportLabel,
-  energyLabel,
-  silenceLabel,
-  audioDebugLabel,
-});
-
-const tuningBindings = {
-  micSensitivity: { input: micSensitivity, output: micSensitivityValue },
-  noiseGate: { input: noiseGate, output: noiseGateValue },
-  smoothing: { input: smoothing, output: smoothingValue },
-  baselineTransport: { input: baselineTransport, output: baselineTransportValue },
-  audioReactivity: { input: audioReactivity, output: audioReactivityValue },
-  peakIntensity: { input: peakIntensity, output: peakIntensityValue },
+const controlSpec = {
+  micSensitivity: { decimals: 2 },
+  noiseGate: { decimals: 3 },
+  sustainThreshold: { decimals: 3 },
+  activateThreshold: { decimals: 3 },
+  deactivateThreshold: { decimals: 3 },
+  holdTime: { decimals: 0 },
+  fadeTime: { decimals: 0 },
+  motionScale: { decimals: 2 },
+  baseFlow: { decimals: 2 },
+  responseCurve: { decimals: 2 },
+  maxSpeed: { decimals: 2 },
+  bassWeight: { decimals: 2 },
+  midsWeight: { decimals: 2 },
+  highsWeight: { decimals: 2 },
 };
+
+const controls = Object.fromEntries(
+  Object.keys(controlSpec).map((key) => [
+    key,
+    { input: byId(key), current: byId(`${key}Value`), engine: byId(`${key}Engine`) },
+  ])
+);
+
+function fmt(value, decimals = 2) {
+  return Number(value ?? 0).toFixed(decimals);
+}
 
 function setModeSettingsStatus(text = "", kind = "") {
   if (!saveModeSettingsStatus) return;
@@ -68,37 +73,59 @@ function setModeSettingsStatus(text = "", kind = "") {
   saveModeSettingsStatus.dataset.kind = kind;
 }
 
-function syncDevSlidersFromTuning(tuning) {
-  if (!tuning) return;
-  Object.entries(tuningBindings).forEach(([key, refs]) => {
-    const { input, output } = refs;
-    if (!input || !output) return;
-    const value = Number(tuning[key] ?? 0);
-    input.value = String(value);
-    output.textContent = value.toFixed(2);
+function syncControlsFromRuntime() {
+  const settings = renderer.getCurrentModeActiveSettings();
+  Object.entries(controls).forEach(([key, refs]) => {
+    const cfg = controlSpec[key];
+    const val = Number(settings[key] ?? 0);
+    if (refs.input) refs.input.value = String(val);
+    if (refs.current) refs.current.textContent = fmt(val, cfg.decimals);
+    if (refs.engine) refs.engine.textContent = fmt(val, cfg.decimals);
   });
+}
+
+function refreshRuntimePanel() {
+  const state = renderer.getRuntimeState();
+  const debug = audioEngine.getDebugState?.() ?? {};
+  const baseline = Number(state.baseline ?? 0);
+  byId("baselineValue").textContent = baseline.toFixed(3);
+  byId("baselineValueEngine").textContent = baseline.toFixed(3);
+
+  const inUse = state.settings ?? {};
+  Object.entries(controls).forEach(([key, refs]) => {
+    if (refs.engine) refs.engine.textContent = fmt(inUse[key], controlSpec[key].decimals);
+  });
+
+  runtimeDebugPanel.textContent =
+    `raw energy: ${fmt(state.rawEnergy, 3)} | ` +
+    `signal above baseline: ${state.signalAboveBaseline} | ` +
+    `sustainEnergy: ${fmt(state.sustainEnergy, 3)} | ` +
+    `motionEnabled: ${state.motionEnabled} | ` +
+    `transport: ${fmt(state.transport, 3)} | ` +
+    `finalMotion: ${fmt(state.finalMotion, 3)} | ` +
+    `baseline: ${fmt(state.baseline, 3)} | ` +
+    `current mode: ${state.mode} | ` +
+    `params: ${JSON.stringify(debug.modeParameters ?? inUse)}`;
 }
 
 function setModeAndSync(mode) {
   renderer.setMode(mode);
-  if (modeSelect) {
-    modeSelect.value = String(renderer.mode);
-  }
-  syncDevSlidersFromTuning(renderer.getCurrentModeActiveTuning());
+  if (modeSelect) modeSelect.value = String(renderer.mode);
+  syncControlsFromRuntime();
+  refreshRuntimePanel();
   setModeSettingsStatus(`Loaded mode ${renderer.mode} settings`, "loaded");
 }
 
 function enterFullscreen() {
   const elem = document.documentElement;
-  if (!document.fullscreenElement) {
-    elem.requestFullscreen?.();
-  }
+  if (!document.fullscreenElement) elem.requestFullscreen?.();
 }
 
 async function connectAudio() {
   try {
     await audioEngine.start();
     audioLabel.textContent = "Live input connected";
+    syncControlsFromRuntime();
   } catch (err) {
     const reason = audioEngine.getLastInitError?.() || err?.message || String(err);
     console.error("[audio-init] connect failed", { reason, error: err });
@@ -113,58 +140,54 @@ async function boot() {
 
 renderer.start();
 requestAnimationFrame(() => {
-  if (!warmupStatus) return;
   warmupStatus.textContent = "warm and ready";
   warmupStatus.classList.add("ready");
 });
 
 startButton.addEventListener("click", boot);
 fsButton.addEventListener("click", enterFullscreen);
+micButton.addEventListener("click", connectAudio);
 
-micButton.addEventListener("click", async () => {
-  await connectAudio();
-});
-
-function bindRange(input, output, key) {
-  if (!input || !output) return;
-
-  input.addEventListener("input", () => {
-    const value = Number(input.value);
-    output.textContent = value.toFixed(2);
-    renderer.setCurrentModeLiveTuning({ [key]: value });
+function bindRange(key) {
+  const refs = controls[key];
+  if (!refs?.input) return;
+  refs.input.addEventListener("input", () => {
+    const value = Number(refs.input.value);
+    refs.current.textContent = fmt(value, controlSpec[key].decimals);
+    renderer.setCurrentModeLiveSettings({ [key]: value });
+    refreshRuntimePanel();
     setModeSettingsStatus(`Unsaved changes for mode ${renderer.mode}`, "dirty");
   });
 }
 
 if (devPanel) {
-  const enabled = !!CONFIG.devControls?.enabled;
-  devPanel.style.display = enabled ? "block" : "none";
+  devPanel.style.display = CONFIG.devControls?.enabled ? "block" : "none";
 
-  bindRange(micSensitivity, micSensitivityValue, "micSensitivity");
-  bindRange(noiseGate, noiseGateValue, "noiseGate");
-  bindRange(smoothing, smoothingValue, "smoothing");
-  bindRange(baselineTransport, baselineTransportValue, "baselineTransport");
-  bindRange(audioReactivity, audioReactivityValue, "audioReactivity");
-  bindRange(peakIntensity, peakIntensityValue, "peakIntensity");
-
+  Object.keys(controlSpec).forEach(bindRange);
   modeSelect.value = String(renderer.mode);
-  syncDevSlidersFromTuning(renderer.getCurrentModeActiveTuning());
+  syncControlsFromRuntime();
 
   modeSelect.addEventListener("change", () => setModeAndSync(Number(modeSelect.value)));
 
   renderer.onModeChange(() => {
     modeSelect.value = String(renderer.mode);
-    syncDevSlidersFromTuning(renderer.getCurrentModeActiveTuning());
+    syncControlsFromRuntime();
+    refreshRuntimePanel();
     setModeSettingsStatus(`Loaded mode ${renderer.mode} settings`, "loaded");
   });
 
-  if (saveModeSettingsButton) {
-    saveModeSettingsButton.addEventListener("click", () => {
-      renderer.saveCurrentModeTuning();
-      syncDevSlidersFromTuning(renderer.getCurrentModeActiveTuning());
-      setModeSettingsStatus(`Saved settings for mode ${renderer.mode}`, "saved");
-    });
-  }
+  saveModeSettingsButton?.addEventListener("click", () => {
+    renderer.saveCurrentModeSettings();
+    syncControlsFromRuntime();
+    setModeSettingsStatus(`Saved settings for mode ${renderer.mode}`, "saved");
+  });
+
+  resetModeDefaultsButton?.addEventListener("click", () => {
+    renderer.resetCurrentModeSettings();
+    syncControlsFromRuntime();
+    refreshRuntimePanel();
+    setModeSettingsStatus(`Reset mode ${renderer.mode} to defaults`, "reset");
+  });
 
   autoToggle.checked = renderer.autoMode;
   autoToggle.addEventListener("change", () => renderer.setAutoMode(autoToggle.checked));
@@ -179,25 +202,28 @@ if (devPanel) {
   reconnectButton.addEventListener("click", connectAudio);
   fsDevButton.addEventListener("click", enterFullscreen);
 
-  devPanelToggle.addEventListener("click", () => {
-    devPanelContent.classList.toggle("collapsed");
-  });
-
-  devMenuToggle.addEventListener("click", () => {
-    hud.classList.toggle("hidden");
-  });
+  devPanelToggle.addEventListener("click", () => devPanelContent.classList.toggle("collapsed"));
+  devMenuToggle.addEventListener("click", () => hud.classList.toggle("hidden"));
 
   debugToggle.addEventListener("change", () => {
-    audioDebugLabel.style.display = debugToggle.checked ? "block" : "none";
-    transportLabel.parentElement.style.display = debugToggle.checked ? "block" : "none";
-    energyLabel.parentElement.style.display = debugToggle.checked ? "block" : "none";
-    silenceLabel.parentElement.style.display = debugToggle.checked ? "block" : "none";
+    const visible = debugToggle.checked;
+    audioDebugLabel.style.display = visible ? "block" : "none";
+    transportLabel.parentElement.style.display = visible ? "block" : "none";
+    energyLabel.parentElement.style.display = visible ? "block" : "none";
+    silenceLabel.parentElement.style.display = visible ? "block" : "none";
+    runtimeDebugPanel.style.display = visible ? "block" : "none";
   });
+
+  setInterval(refreshRuntimePanel, 120);
+}
+
+function toggleUiVisibility() {
+  overlay.classList.toggle("ui-hidden");
+  devPanel.classList.toggle("ui-hidden");
 }
 
 window.addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
-
   if (k === "1") setModeAndSync(1);
   if (k === "2") setModeAndSync(2);
   if (k === "3") setModeAndSync(3);
@@ -207,6 +233,6 @@ window.addEventListener("keydown", (e) => {
     e.preventDefault();
     eventsEngine.triggerBlackoutPulse();
   }
-  if (k === "h") hud.classList.toggle("hidden");
+  if (k === "h") toggleUiVisibility();
   if (k === "f") enterFullscreen();
 });
