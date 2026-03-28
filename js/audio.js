@@ -365,6 +365,11 @@ export class AudioEngine {
     this.tuning.bassWeight = clamp(Number(this.tuning.bassWeight ?? 0.26), 0, 1.2);
     this.tuning.midsWeight = clamp(Number(this.tuning.midsWeight ?? 0.2), 0, 1.2);
     this.tuning.highsWeight = clamp(Number(this.tuning.highsWeight ?? 0.1), 0, 1.2);
+    this.tuning.motionScale = clamp(Number(this.tuning.motionScale ?? 0.35), 0, 2);
+    this.tuning.baseFlow = clamp(Number(this.tuning.baseFlow ?? 0.02), 0, 1);
+    this.tuning.maxSpeed = clamp(Number(this.tuning.maxSpeed ?? 0.6), 0.01, 2);
+    this.tuning.audioReactivity = clamp(Number(this.tuning.audioReactivity ?? 1), 0.1, 4);
+    this.tuning.peakIntensity = clamp(Number(this.tuning.peakIntensity ?? 1), 0.1, 4);
     if (this.analyser) {
       this.analyser.smoothingTimeConstant = clamp(this.tuning.smoothing ?? 0.18, 0, 0.5);
     }
@@ -886,11 +891,6 @@ export class AudioEngine {
     this.motion.burst = clamp(compressedBurst, 0, 1);
 
     const effectiveDrive = clamp(finiteOr(this.motion.pulseDrive, 0), 0, 1.5);
-    const phaseSeed = finiteOr(this.motionPhase, 0);
-    this.motionPhase = hardIdle ? phaseSeed : phaseSeed + effectiveDrive * this.pulse.phaseGate * dt;
-    this.motionFrozen = hardIdle || effectiveDrive <= 1e-6 || this.pulse.phaseGate <= 1e-6;
-    this.transportPhase = this.motionPhase % 1;
-    this.transportPhase = finiteOr(this.transportPhase, 0);
 
     this.raw.transport = effectiveDrive;
     this.smooth.transport = followEnvelope(this.smooth.transport, effectiveDrive, 9, 3.2, dt);
@@ -898,6 +898,16 @@ export class AudioEngine {
     const rawTransport = hardIdle ? 0 : clamp(this.smooth.transport, 0, 1);
     const responseCurve = clamp(this.tuning.responseCurve ?? 1.5, 1, 2.5);
     this.transport = clamp(Math.pow(rawTransport, responseCurve), 0, 1);
+    const motionScale = clamp(this.tuning.motionScale ?? 0.35, 0, 2);
+    const baseFlow = clamp(this.tuning.baseFlow ?? 0.02, 0, 1);
+    const maxSpeed = clamp(this.tuning.maxSpeed ?? 0.6, 0.01, 2);
+    const finalTransport = this.transport * motionScale;
+    const finalMotion = this.motionEnabled ? Math.min(baseFlow + finalTransport, maxSpeed) : 0;
+    const phaseSeed = finiteOr(this.motionPhase, 0);
+    this.motionPhase = phaseSeed + finalMotion * dt;
+    this.transportPhase = this.motionPhase % 1;
+    this.transportPhase = finiteOr(this.transportPhase, 0);
+    this.motionFrozen = !this.motionEnabled || finalMotion <= 1e-6;
 
     const signalMix = clamp(this.trueSignal / Math.max(1e-5, signalCeiling), 0, 1);
     const reactiveMix = signalMix;
@@ -942,6 +952,11 @@ export class AudioEngine {
       energyLevel: reactiveEnergy,
       transport: this.transport,
       transportRaw: rawTransport,
+      finalTransport,
+      finalMotion,
+      motionScale,
+      baseFlow,
+      maxSpeed,
       onset: reactiveOnset,
       silence: this.smooth.silence,
       motionSpeed: this.motion.speed,
@@ -1040,6 +1055,11 @@ export class AudioEngine {
       sustainThreshold,
       pulseDrive: clamp(this.motion.pulseDrive, 0, 1.5),
       transport: clamp(this.transport, 0, 1),
+      finalTransport: clamp(finalTransport, 0, 4),
+      finalMotion: clamp(finalMotion, 0, 4),
+      motionScale,
+      baseFlow,
+      maxSpeed,
       transportRaw: clamp(rawTransport, 0, 1),
       renderSpeed: clamp(this.motion.renderSpeed, 0, 1.35),
       onset: reactiveOnset,
