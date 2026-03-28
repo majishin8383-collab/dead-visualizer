@@ -3,97 +3,82 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dead Visualizer dv-153-motion-scaling</title>
+  <title>Dead Visualizer dv-157-full-control-panel</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Rye&family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/styles.css?v=132speedfix" />
+  <link rel="stylesheet" href="./css/styles.css?v=157control" />
 </head>
 <body>
-  <div id="app">
-    <canvas id="mainCanvas"></canvas>
-  </div>
+  <div id="app"><canvas id="mainCanvas"></canvas></div>
 
   <div id="startScreen">
     <div id="startCard">
       <h1 id="posterTitle">Stella Blue Experience</h1>
       <p id="posterSubtitle">Professional Psychedelic Concert Visual Engine</p>
-
-      <div id="setlist">
-        <h2>TONIGHT'S SETS</h2>
-        <ol>
-          <li>Liquid Tie-Dye</li>
-          <li>Liquid Tie-Dye (2)</li>
-          <li>Liquid Tie-Dye (3)</li>
-          <li>Liquid Tie-Dye (4)</li>
-        </ol>
-      </div>
-
-      <div id="houseControls">
-        <h3>HOUSE CONTROLS</h3>
-        <p>F = Fullscreen · H = Hide HUD · A = Auto Cycle · Space = Blackout Hit</p>
-      </div>
-
+      <div id="setlist"><h2>TONIGHT'S SETS</h2><ol><li>Liquid Tie-Dye</li><li>Liquid Tie-Dye (2)</li><li>Liquid Tie-Dye (3)</li><li>Liquid Tie-Dye (4)</li></ol></div>
+      <div id="houseControls"><h3>HOUSE CONTROLS</h3><p>F = Fullscreen · H = Hide ALL UI · A = Auto Cycle · Space = Blackout Hit</p></div>
       <div id="warmupStatus" aria-live="polite">warming up...</div>
       <button id="startButton">LAUNCH THE SHOW</button>
-      <p id="versionTag">dv-153-motion-scaling</p>
+      <p id="versionTag">dv-157-full-control-panel</p>
     </div>
   </div>
 
-  <div id="overlay">
-    <div id="hud">
-      <div><strong>Mode:</strong> <span id="modeLabel">Boot</span></div>
-      <div><strong>Audio:</strong> <span id="audioLabel">Not started</span></div>
-      <div><strong>Transport:</strong> <span id="transportLabel">0.00</span></div>
-      <div><strong>Energy:</strong> <span id="energyLabel">0.00</span></div>
-      <div><strong>Silence:</strong> <span id="silenceLabel">1.00</span></div>
-      <div class="small" id="audioDebugLabel">init:N live:N rawE:0.00 bass:0.00 mids:0.00 highs:0.00 smE:0.00 tr:0.00 on:0.00 sil:1.00</div>
-      <div class="small">1 / 2 / 3 / 4 / A / H / F / Space</div>
-      <button id="fsButton">Fullscreen</button>
-      <button id="micButton">Reconnect Audio</button>
-    </div>
-  </div>
+  <div id="overlay"><div id="hud">
+    <div><strong>Mode:</strong> <span id="modeLabel">Boot</span></div>
+    <div><strong>Audio:</strong> <span id="audioLabel">Not started</span></div>
+    <div><strong>Transport:</strong> <span id="transportLabel">0.00</span></div>
+    <div><strong>Energy:</strong> <span id="energyLabel">0.00</span></div>
+    <div><strong>Silence:</strong> <span id="silenceLabel">1.00</span></div>
+    <div class="small" id="audioDebugLabel">init:N live:N rawE:0.00</div>
+    <div class="small">1 / 2 / 3 / 4 / A / H / F / Space</div>
+    <button id="fsButton">Fullscreen</button>
+    <button id="micButton">Reconnect Audio</button>
+  </div></div>
 
   <div id="devPanel">
-    <div class="dev-header">
-      <strong>DEV CONTROLS</strong>
-      <button id="devPanelToggle" type="button">Collapse</button>
-    </div>
+    <div class="dev-header"><strong>FULL MODE CONTROL PANEL</strong><button id="devPanelToggle" type="button">Collapse</button></div>
     <div id="devPanelContent">
-      <div class="dev-section">
-        <h4>Audio</h4>
-        <label>Mic Sensitivity <span id="micSensitivityValue">1.00</span></label>
-        <input id="micSensitivity" type="range" min="0.10" max="4.00" step="0.01" />
-        <label>Noise Gate <span id="noiseGateValue">0.03</span></label>
-        <input id="noiseGate" type="range" min="0" max="0.2" step="0.005" />
-        <label>Smoothing <span id="smoothingValue">0.18</span></label>
-        <input id="smoothing" type="range" min="0.02" max="0.50" step="0.01" />
-      </div>
-
-      <div class="dev-section">
-        <h4>Motion</h4>
-        <label>Baseline Transport <span id="baselineTransportValue">0.12</span></label>
-        <input id="baselineTransport" type="range" min="0.00" max="1.50" step="0.01" />
-        <label>Audio Reactivity <span id="audioReactivityValue">1.00</span></label>
-        <input id="audioReactivity" type="range" min="0.00" max="3.00" step="0.01" />
-        <label>Peak Intensity <span id="peakIntensityValue">1.00</span></label>
-        <input id="peakIntensity" type="range" min="0.00" max="4.00" step="0.01" />
-      </div>
-
       <div class="dev-section">
         <h4>Modes</h4>
         <label for="modeSelect">Mode</label>
-        <select id="modeSelect">
-          <option value="1">Mode 1</option>
-          <option value="2">Mode 2</option>
-          <option value="3">Mode 3</option>
-          <option value="4">Mode 4</option>
-        </select>
+        <select id="modeSelect"><option value="1">Mode 1</option><option value="2">Mode 2</option><option value="3">Mode 3</option><option value="4">Mode 4</option></select>
         <label><input id="autoToggle" type="checkbox" /> Auto cycle</label>
         <label for="autoCycleDuration">Auto seconds</label>
         <input id="autoCycleDuration" type="number" min="3" max="120" step="1" value="18" />
+      </div>
+
+      <div class="dev-section"><h4>Input / Signal</h4>
+        <label>Mic Sensitivity <span id="micSensitivityValue"></span> · engine <span id="micSensitivityEngine"></span></label><input id="micSensitivity" type="range" min="0.10" max="4.00" step="0.01" />
+        <label>Noise Gate <span id="noiseGateValue"></span> · engine <span id="noiseGateEngine"></span></label><input id="noiseGate" type="range" min="0.00" max="0.20" step="0.001" />
+        <label>Baseline Value (read-only) <span id="baselineValue">0.000</span> · engine <span id="baselineValueEngine">0.000</span></label>
+      </div>
+
+      <div class="dev-section"><h4>Detection</h4>
+        <label>Sustain Threshold <span id="sustainThresholdValue"></span> · engine <span id="sustainThresholdEngine"></span></label><input id="sustainThreshold" type="range" min="0.02" max="0.40" step="0.001" />
+        <label>Activate Threshold <span id="activateThresholdValue"></span> · engine <span id="activateThresholdEngine"></span></label><input id="activateThreshold" type="range" min="0.05" max="1.00" step="0.005" />
+        <label>Deactivate Threshold <span id="deactivateThresholdValue"></span> · engine <span id="deactivateThresholdEngine"></span></label><input id="deactivateThreshold" type="range" min="0.01" max="1.00" step="0.005" />
+        <label>Hold Time (ms) <span id="holdTimeValue"></span> · engine <span id="holdTimeEngine"></span></label><input id="holdTime" type="range" min="10" max="3000" step="10" />
+        <label>Fade Time (ms) <span id="fadeTimeValue"></span> · engine <span id="fadeTimeEngine"></span></label><input id="fadeTime" type="range" min="10" max="3000" step="10" />
+      </div>
+
+      <div class="dev-section"><h4>Motion</h4>
+        <label>Motion Scale <span id="motionScaleValue"></span> · engine <span id="motionScaleEngine"></span></label><input id="motionScale" type="range" min="0.00" max="2.00" step="0.01" />
+        <label>Base Flow <span id="baseFlowValue"></span> · engine <span id="baseFlowEngine"></span></label><input id="baseFlow" type="range" min="0.00" max="1.00" step="0.01" />
+        <label>Response Curve <span id="responseCurveValue"></span> · engine <span id="responseCurveEngine"></span></label><input id="responseCurve" type="range" min="1.00" max="2.50" step="0.01" />
+        <label>Max Speed <span id="maxSpeedValue"></span> · engine <span id="maxSpeedEngine"></span></label><input id="maxSpeed" type="range" min="0.01" max="2.00" step="0.01" />
+      </div>
+
+      <div class="dev-section"><h4>Audio Response</h4>
+        <label>Bass Weight <span id="bassWeightValue"></span> · engine <span id="bassWeightEngine"></span></label><input id="bassWeight" type="range" min="0.00" max="1.20" step="0.01" />
+        <label>Mids Weight <span id="midsWeightValue"></span> · engine <span id="midsWeightEngine"></span></label><input id="midsWeight" type="range" min="0.00" max="1.20" step="0.01" />
+        <label>Highs Weight <span id="highsWeightValue"></span> · engine <span id="highsWeightEngine"></span></label><input id="highsWeight" type="range" min="0.00" max="1.20" step="0.01" />
+      </div>
+
+      <div class="dev-section"><h4>System</h4>
         <div class="dev-buttons">
           <button id="saveModeSettingsButton" type="button">Save for this mode</button>
+          <button id="resetModeDefaultsButton" type="button">Reset mode defaults</button>
           <button id="blackoutButton" type="button">Blackout Pulse</button>
           <button id="reconnectButton" type="button">Reconnect Audio</button>
           <button id="fsDevButton" type="button">Fullscreen</button>
@@ -101,14 +86,14 @@
         <div class="small" id="saveModeSettingsStatus" aria-live="polite"></div>
       </div>
 
-      <div class="dev-section">
-        <h4>Debug</h4>
-        <button id="devMenuToggle" type="button">Hide/Show Menu</button>
+      <div class="dev-section"><h4>Debug Runtime</h4>
+        <button id="devMenuToggle" type="button">Hide/Show HUD</button>
         <label><input id="debugToggle" type="checkbox" checked /> Show debug readouts</label>
+        <div class="small" id="runtimeDebugPanel">runtime waiting...</div>
       </div>
     </div>
   </div>
 
-  <script type="module" src="./js/main.js?v=132speedfix"></script>
+  <script type="module" src="./js/main.js?v=157control"></script>
 </body>
 </html>

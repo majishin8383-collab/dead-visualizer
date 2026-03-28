@@ -2,14 +2,13 @@ import { CONFIG } from "./config.js";
 import { computeBlackout } from "./transitions.js";
 import { VisualEngine } from "./visual-engine.js";
 import { FallbackEngine } from "./fallback-engine.js";
-import { MODE_MOTION_SETTINGS } from "./modes.js";
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
-function getModeMotionSettings(mode) {
-  return MODE_MOTION_SETTINGS[mode] ?? MODE_MOTION_SETTINGS[1];
+function cloneSettings(settings) {
+  return JSON.parse(JSON.stringify(settings));
 }
 
 export class Renderer {
@@ -26,28 +25,19 @@ export class Renderer {
 
     this.motionPhase = 0;
     this.lastMotionPhase = 0;
-    this.motionDebug = {
-      baseFlow: 0,
-      motionScale: 1,
-      finalMotion: 0,
-      finalTransport: 0,
-    };
+    this.motionDebug = { baseFlow: 0, motionScale: 1, finalMotion: 0, finalTransport: 0 };
     this.lastTs = performance.now();
     this.lastActiveSignalAt = this.lastTs;
     this.silenceTimer = 0;
 
     this.running = false;
     this.crashed = false;
-    this.forcedFallback = false;
-
     this.usingFallback = false;
     this.lastMotionDiagAt = 0;
     this.modeChangeListeners = [];
-    this.baseTuning = {
-      ...CONFIG.audio.tuning,
-      ...(this.audioEngine.getTuning?.() ?? {}),
-    };
-    this.savedModeTunings = this.initializeSavedModeTunings();
+
+    this.defaultModeSettings = cloneSettings(CONFIG.modes.settingsByMode ?? {});
+    this.modeSettings = cloneSettings(this.defaultModeSettings);
 
     try {
       this.visual = new VisualEngine(canvas);
@@ -60,50 +50,58 @@ export class Renderer {
     window.addEventListener("resize", () => this.resize());
     this.resize();
 
-    this.applySavedTuningForMode(this.mode);
+    this.applyModeSettings(this.mode);
     this.updateHudMode();
   }
 
-  initializeSavedModeTunings() {
-    const configured = CONFIG.modes?.tuningByMode ?? {};
-    const modes = Object.keys(CONFIG.modes?.names ?? {});
-    const saved = {};
-    for (const modeKey of modes) {
-      saved[modeKey] = {
-        ...this.baseTuning,
-        ...(configured[modeKey] ?? {}),
-      };
-    }
-    return saved;
+  getModeSettings(mode) {
+    return { ...(this.modeSettings[String(mode)] ?? this.defaultModeSettings[String(mode)] ?? {}) };
   }
 
-  getSavedTuningForMode(mode) {
-    const key = String(mode);
+  getDefaultModeSettings(mode) {
+    return { ...(this.defaultModeSettings[String(mode)] ?? {}) };
+  }
+
+  getRuntimeState() {
+    const debug = this.audioEngine.getDebugState?.() ?? {};
     return {
-      ...this.baseTuning,
-      ...(this.savedModeTunings[key] ?? {}),
+      mode: this.mode,
+      settings: this.getCurrentModeActiveSettings(),
+      rawEnergy: debug.rawEnergy ?? 0,
+      signalAboveBaseline: !!debug.activeAboveBaseline,
+      sustainEnergy: debug.sustainEnergy ?? 0,
+      motionEnabled: !!debug.motionEnabled,
+      transport: debug.transport ?? 0,
+      finalMotion: this.motionDebug.finalMotion ?? 0,
+      baseline: debug.noiseFloor ?? 0,
     };
   }
 
-  applySavedTuningForMode(mode) {
-    if (!this.audioEngine?.setTuning) return;
-    const saved = this.getSavedTuningForMode(mode);
-    this.audioEngine.setTuning(saved);
+  applyModeSettings(mode) {
+    const settings = this.getModeSettings(mode);
+    this.audioEngine.setTuning(settings);
   }
 
-  setCurrentModeLiveTuning(partial) {
-    if (!this.audioEngine?.setTuning) return;
+  setCurrentModeLiveSettings(partial) {
+    if (!partial || typeof partial !== "object") return;
+    const key = String(this.mode);
+    this.modeSettings[key] = { ...this.getModeSettings(this.mode), ...partial };
     this.audioEngine.setTuning(partial);
   }
 
-  saveCurrentModeTuning() {
-    if (!this.audioEngine?.getTuning) return;
-    this.savedModeTunings[String(this.mode)] = this.audioEngine.getTuning();
+  saveCurrentModeSettings() {
+    const key = String(this.mode);
+    this.modeSettings[key] = this.getCurrentModeActiveSettings();
   }
 
-  getCurrentModeActiveTuning() {
-    if (!this.audioEngine?.getTuning) return this.getSavedTuningForMode(this.mode);
-    return this.audioEngine.getTuning();
+  resetCurrentModeSettings() {
+    const key = String(this.mode);
+    this.modeSettings[key] = this.getDefaultModeSettings(this.mode);
+    this.applyModeSettings(this.mode);
+  }
+
+  getCurrentModeActiveSettings() {
+    return this.audioEngine.getTuning?.() ?? this.getModeSettings(this.mode);
   }
 
   onModeChange(listener) {
@@ -118,8 +116,8 @@ export class Renderer {
     const payload = {
       mode: this.mode,
       prevMode,
-      tuning: this.getCurrentModeActiveTuning(),
-      savedTuning: this.getSavedTuningForMode(this.mode),
+      settings: this.getCurrentModeActiveSettings(),
+      savedSettings: this.getModeSettings(this.mode),
     };
     this.modeChangeListeners.forEach((listener) => {
       try {
@@ -137,7 +135,7 @@ export class Renderer {
   setMode(mode) {
     const prevMode = this.mode;
     this.mode = mode;
-    this.applySavedTuningForMode(mode);
+    this.applyModeSettings(mode);
     this.visual.setMode?.(mode);
     this.updateHudMode();
     this.notifyModeChange(prevMode);
@@ -183,7 +181,6 @@ export class Renderer {
 
   loop() {
     if (!this.running) return;
-
     requestAnimationFrame(() => this.loop());
 
     const now = performance.now();
@@ -191,31 +188,29 @@ export class Renderer {
     this.lastTs = now;
 
     const audio = this.audioEngine.update();
+    const settings = this.getCurrentModeActiveSettings();
+
     const activeSignalThreshold = CONFIG.blackout.activeSignalThreshold ?? 0.045;
-    const activeSignalLevel = Math.max(
-      audio.trueSignal ?? 0,
-      audio.energy ?? 0,
-      audio.sustainEnergy ?? 0,
-      (audio.onset ?? 0) * 0.55,
-      (audio.peak ?? 0) * 0.45
-    );
-    if (activeSignalLevel >= activeSignalThreshold) {
-      this.lastActiveSignalAt = now;
-    }
+    const activeSignalLevel = Math.max(audio.trueSignal ?? 0, audio.energy ?? 0, audio.sustainEnergy ?? 0, (audio.onset ?? 0) * 0.55, (audio.peak ?? 0) * 0.45);
+    if (activeSignalLevel >= activeSignalThreshold) this.lastActiveSignalAt = now;
     this.silenceTimer = Math.max(0, (now - this.lastActiveSignalAt) / 1000);
 
     const pulseDrive = clamp(audio.pulseDrive ?? 0, 0, 1.5);
-    const modeMotion = getModeMotionSettings(this.mode);
     const transport = clamp(audio.transport ?? 0, 0, 1);
-    const finalTransport = transport * modeMotion.motionScale;
-    const finalMotion = Math.min(modeMotion.baseFlow + finalTransport, 0.6);
+    const motionScale = clamp(settings.motionScale ?? 0.35, 0, 2);
+    const baseFlow = clamp(settings.baseFlow ?? 0.02, 0, 1);
+    const maxSpeed = clamp(settings.maxSpeed ?? 0.6, 0.01, 2);
+    const finalTransport = transport * motionScale;
+    const finalMotion = Math.min(baseFlow + finalTransport, maxSpeed);
+
     this.motionPhase += finalMotion * dt;
-    this.motionDebug.baseFlow = modeMotion.baseFlow;
-    this.motionDebug.motionScale = modeMotion.motionScale;
+    this.motionDebug.baseFlow = baseFlow;
+    this.motionDebug.motionScale = motionScale;
     this.motionDebug.finalTransport = finalTransport;
     this.motionDebug.finalMotion = finalMotion;
     const motionDelta = this.motionPhase - this.lastMotionPhase;
     this.lastMotionPhase = this.motionPhase;
+
     const events = this.eventsEngine.update(audio, dt);
 
     if (this.autoMode) {
@@ -229,30 +224,12 @@ export class Renderer {
     const blackout = computeBlackout(audio.silence, this.silenceTimer, events.blackoutPulse, CONFIG);
 
     try {
-      this.visual.render({
-        mode: this.mode,
-        time: this.motionPhase,
-        motionEnabled: finalMotion > 0,
-        dt,
-        blackout: blackout.fade,
-        audio,
-        events,
-      });
+      this.visual.render({ mode: this.mode, time: this.motionPhase, motionEnabled: finalMotion > 0, dt, blackout: blackout.fade, audio, events });
       this.crashed = false;
     } catch (err) {
-      if (!this.crashed) {
-        console.error("Visualizer render failed; activating fallback.", err);
-      }
-      if (!this.usingFallback) {
-        this.activateFallback("runtime");
-      }
-      this.visual.render?.({
-        mode: this.mode,
-        time: this.motionPhase,
-        motionEnabled: finalMotion > 0,
-        blackout: blackout.fade,
-        audio,
-      });
+      if (!this.crashed) console.error("Visualizer render failed; activating fallback.", err);
+      if (!this.usingFallback) this.activateFallback("runtime");
+      this.visual.render?.({ mode: this.mode, time: this.motionPhase, motionEnabled: finalMotion > 0, blackout: blackout.fade, audio });
       this.crashed = true;
     }
 
@@ -261,91 +238,34 @@ export class Renderer {
     this.hudRefs.silenceLabel.textContent = audio.silence.toFixed(2);
 
     if (this.hudRefs.audioDebugLabel) {
-      const dbg = this.audioEngine.getDebugState?.();
-      if (dbg) {
-        this.hudRefs.audioDebugLabel.textContent =
-          `init:${dbg.initialized ? "Y" : "N"}` +
-          ` live:${dbg.live ? "Y" : "N"}` +
-          ` ctx:${dbg.ctxState ?? "?"}` +
-          ` str:${dbg.streamActive ? "Y" : "N"}` +
-          ` fft:${dbg.fftSize ?? 0}` +
-          ` bins:${dbg.freqBinCount ?? 0}` +
-          ` f0:${((dbg.firstBins?.[0] ?? 0) * 1).toFixed(2)}` +
-          ` f1:${((dbg.firstBins?.[1] ?? 0) * 1).toFixed(2)}` +
-          ` f2:${((dbg.firstBins?.[2] ?? 0) * 1).toFixed(2)}` +
-          ` obsE:${(dbg.observedEnergy ?? 0).toFixed(2)}` +
-          ` rmsR:${(dbg.rmsRaw ?? 0).toFixed(2)}` +
-          ` bR:${(dbg.bassRaw ?? 0).toFixed(2)}` +
-          ` mR:${(dbg.midsRaw ?? 0).toFixed(2)}` +
-          ` hR:${(dbg.highsRaw ?? 0).toFixed(2)}` +
-          ` rawE:${dbg.rawEnergy.toFixed(2)}` +
-          ` sigE:${(dbg.signalEnergy ?? 0).toFixed(2)}` +
-          ` gatE:${(dbg.gatedEnergy ?? 0).toFixed(2)}` +
-          ` bass:${dbg.bass.toFixed(2)}` +
-          ` mids:${dbg.mids.toFixed(2)}` +
-          ` highs:${dbg.highs.toFixed(2)}` +
-          ` smE:${dbg.smoothedEnergy.toFixed(2)}` +
-          ` nf:${dbg.noiseFloor.toFixed(2)}` +
-          ` ts:${dbg.trueSignal.toFixed(2)}` +
-          ` rc:${(dbg.rhythmConfidence ?? 0).toFixed(2)}` +
-          ` pd:${dbg.pulseDrive.toFixed(2)}` +
-          ` eL:${dbg.energyLevel.toFixed(2)}` +
-          ` tr:${dbg.transport.toFixed(2)}` +
-          ` on:${dbg.onset.toFixed(2)}` +
-          ` sil:${dbg.silence.toFixed(2)}` +
-          ` act:${dbg.activeAboveBaseline ? "Y" : "N"}` +
-          ` ph:${dbg.motionPhaseAdvancing ? "Y" : "N"}` +
-          ` me:${dbg.motionEnabled ? "Y" : "N"}` +
-          ` hs:${dbg.hardSilence ? "Y" : "N"}` +
-          ` fr:${dbg.motionFrozen ? "Y" : "N"}` +
-          ` md:${motionDelta.toFixed(4)}` +
-          ` mt:${(dbg.motionTime ?? this.motionPhase).toFixed(2)}` +
-          ` aE:${(audio.energy ?? 0).toFixed(2)}` +
-          ` aB:${(audio.bass ?? 0).toFixed(2)}` +
-          ` aM:${(audio.mids ?? 0).toFixed(2)}` +
-          ` aH:${(audio.highs ?? 0).toFixed(2)}` +
-          ` aT:${(audio.transport ?? 0).toFixed(2)}` +
-          ` bf:${this.motionDebug.baseFlow.toFixed(2)}` +
-          ` ms:${this.motionDebug.motionScale.toFixed(2)}` +
-          ` fm:${this.motionDebug.finalMotion.toFixed(2)}` +
-          ` mode:${this.mode}` +
-          ` b:${(audio.burstSpeed ?? 0).toFixed(2)}` +
-          ` rs:${(audio.renderSpeed ?? 0).toFixed(2)}`;
-      }
+      const dbg = this.audioEngine.getDebugState?.() ?? {};
+      this.hudRefs.audioDebugLabel.textContent =
+        `mode:${this.mode}` +
+        ` rawE:${(dbg.rawEnergy ?? 0).toFixed(3)}` +
+        ` sig:${dbg.activeAboveBaseline ? "Y" : "N"}` +
+        ` sus:${(dbg.sustainEnergy ?? 0).toFixed(3)}` +
+        ` me:${dbg.motionEnabled ? "Y" : "N"}` +
+        ` tr:${(dbg.transport ?? 0).toFixed(3)}` +
+        ` fm:${this.motionDebug.finalMotion.toFixed(3)}` +
+        ` base:${(dbg.noiseFloor ?? 0).toFixed(3)}` +
+        ` act:${(dbg.activateThreshold ?? settings.activateThreshold ?? 0).toFixed(3)}` +
+        ` deact:${(dbg.deactivateThreshold ?? settings.deactivateThreshold ?? 0).toFixed(3)}` +
+        ` hold:${Math.round(dbg.holdTimeMs ?? settings.holdTime ?? 0)}` +
+        ` fade:${Math.round(dbg.fadeTimeMs ?? settings.fadeTime ?? 0)}`;
     }
 
-    if (now - this.lastMotionDiagAt > 600) {
+    if (now - this.lastMotionDiagAt > 800) {
       this.lastMotionDiagAt = now;
       console.debug("[motion-diag]", {
         mode: this.mode,
-        masterTime: Number(this.motionPhase.toFixed(4)),
-        masterTimeDelta: Number(motionDelta.toFixed(5)),
         dt: Number(dt.toFixed(4)),
         transport: Number((audio.transport ?? 0).toFixed(4)),
-        transportRaw: Number((audio.transportRaw ?? 0).toFixed(4)),
-        baseFlow: Number(this.motionDebug.baseFlow.toFixed(4)),
-        motionScale: Number(this.motionDebug.motionScale.toFixed(4)),
-        finalTransport: Number(this.motionDebug.finalTransport.toFixed(4)),
-        finalMotion: Number(this.motionDebug.finalMotion.toFixed(4)),
-        pulseDrive: Number((audio.pulseDrive ?? 0).toFixed(4)),
-        renderSpeed: Number((audio.renderSpeed ?? 0).toFixed(4)),
-        detailSpeed: Number((audio.detailSpeed ?? 0).toFixed(4)),
-        burst: Number((audio.burstSpeed ?? 0).toFixed(4)),
-        onset: Number((audio.onset ?? 0).toFixed(4)),
-        peak: Number((audio.peak ?? 0).toFixed(4)),
-        rawEnergy: Number((audio.energy ?? 0).toFixed(4)),
-        trueSignal: Number((audio.trueSignal ?? 0).toFixed(4)),
-        aboveBaseline: !!audio.activeAboveBaseline,
-        motionPhaseAdvancing: !!audio.motionPhaseAdvancing,
-        motionEnabled: !!audio.motionEnabled,
-        hardSilence: !!audio.hardSilence,
-        motionFrozen: !!audio.motionFrozen,
-        audioDriven: {
-          masterTime: true,
-          shaderUTime: true,
-          blackoutFade: true,
-          mode2Burst: true,
-        },
+        baseFlow: Number(baseFlow.toFixed(4)),
+        motionScale: Number(motionScale.toFixed(4)),
+        finalTransport: Number(finalTransport.toFixed(4)),
+        finalMotion: Number(finalMotion.toFixed(4)),
+        maxSpeed: Number(maxSpeed.toFixed(4)),
+        motionDelta: Number(motionDelta.toFixed(5)),
       });
     }
   }
