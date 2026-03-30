@@ -902,7 +902,7 @@ export class AudioEngine {
     const baseFlow = clamp(this.tuning.baseFlow ?? 0.02, 0, 1);
     const maxSpeed = clamp(this.tuning.maxSpeed ?? 0.6, 0.01, 2);
     const finalTransport = this.transport * motionScale;
-    const finalMotion = this.motionEnabled ? Math.min(baseFlow + finalTransport, maxSpeed) : 0;
+    const finalMotion = this.motionEnabled ? Math.min(this.transport * (baseFlow + motionScale), maxSpeed) : 0;
     const phaseSeed = finiteOr(this.motionPhase, 0);
     this.motionPhase = phaseSeed + finalMotion * dt;
     this.transportPhase = this.motionPhase % 1;
