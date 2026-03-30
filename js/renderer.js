@@ -194,10 +194,10 @@ export class Renderer {
     this.silenceTimer = Math.max(0, (now - this.lastActiveSignalAt) / 1000);
 
     const pulseDrive = clamp(audio.pulseDrive ?? 0, 0, 1.5);
-    const motionScale = clamp(audio.motionScale ?? settings.motionScale ?? 0.35, 0, 2);
-    const baseFlow = clamp(audio.baseFlow ?? settings.baseFlow ?? 0.02, 0, 1);
-    const finalTransport = clamp(audio.finalTransport ?? 0, 0, 4);
-    const finalMotion = clamp(audio.finalMotion ?? 0, 0, 4);
+    const motionScale = clamp(audio.motionScale ?? settings.motionScale ?? 0.08, 0, 0.2);
+    const baseFlow = clamp(audio.baseFlow ?? settings.baseFlow ?? 0, 0, 0.03);
+    const finalTransport = clamp(audio.finalTransport ?? 0, 0, 0.25);
+    const finalMotion = clamp(audio.finalMotion ?? 0, 0, 0.25);
     const motionTime = clamp(audio.motionTime ?? 0, 0, Number.MAX_SAFE_INTEGER);
     const motionDelta = finalMotion * dt;
     this.motionDebug.baseFlow = baseFlow;
