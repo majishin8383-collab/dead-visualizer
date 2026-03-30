@@ -155,6 +155,7 @@ export class AudioEngine {
     this.tuning = {
       ...CONFIG.audio.tuning,
     };
+    this.setTuning({});
     this.music = {
       prevSpectrum: null,
       history: [],
@@ -353,21 +354,21 @@ export class AudioEngine {
       ...this.tuning,
       ...partial,
     };
-    this.tuning.micSensitivity = clamp(Number(this.tuning.micSensitivity ?? 1), 0.1, 4);
-    this.tuning.noiseGate = clamp(Number(this.tuning.noiseGate ?? 0.03), 0, 0.4);
-    this.tuning.sustainThreshold = clamp(Number(this.tuning.sustainThreshold ?? 0.09), 0.02, 0.4);
-    this.tuning.activateThreshold = clamp(Number(this.tuning.activateThreshold ?? 0.34), 0.05, 1);
-    this.tuning.deactivateThreshold = clamp(Number(this.tuning.deactivateThreshold ?? 0.2), 0.01, this.tuning.activateThreshold);
-    this.tuning.holdTime = clamp(Number(this.tuning.holdTime ?? 90), 10, 3000);
-    this.tuning.fadeTime = clamp(Number(this.tuning.fadeTime ?? 260), 10, 3000);
-    this.tuning.responseCurve = clamp(Number(this.tuning.responseCurve ?? 1.5), 1, 2.5);
+    this.tuning.micSensitivity = clamp(Number(this.tuning.micSensitivity ?? 2), 0.5, 3);
+    this.tuning.noiseGate = clamp(Number(this.tuning.noiseGate ?? 0.02), 0, 0.1);
+    this.tuning.sustainThreshold = clamp(Number(this.tuning.sustainThreshold ?? 0.03), 0, 0.12);
+    this.tuning.activateThreshold = clamp(Number(this.tuning.activateThreshold ?? 0.05), 0, 0.15);
+    this.tuning.deactivateThreshold = clamp(Number(this.tuning.deactivateThreshold ?? 0.02), 0, Math.min(0.1, this.tuning.activateThreshold));
+    this.tuning.holdTime = clamp(Number(this.tuning.holdTime ?? 650), 200, 1500);
+    this.tuning.fadeTime = clamp(Number(this.tuning.fadeTime ?? 900), 200, 2000);
+    this.tuning.responseCurve = clamp(Number(this.tuning.responseCurve ?? 1.15), 1, 1.8);
     this.tuning.smoothing = clamp(Number(this.tuning.smoothing ?? 0.18), 0, 0.5);
-    this.tuning.bassWeight = clamp(Number(this.tuning.bassWeight ?? 0.26), 0, 1.2);
-    this.tuning.midsWeight = clamp(Number(this.tuning.midsWeight ?? 0.2), 0, 1.2);
-    this.tuning.highsWeight = clamp(Number(this.tuning.highsWeight ?? 0.1), 0, 1.2);
-    this.tuning.motionScale = clamp(Number(this.tuning.motionScale ?? 0.35), 0, 2);
-    this.tuning.baseFlow = clamp(Number(this.tuning.baseFlow ?? 0.02), 0, 1);
-    this.tuning.maxSpeed = clamp(Number(this.tuning.maxSpeed ?? 0.6), 0.01, 2);
+    this.tuning.bassWeight = clamp(Number(this.tuning.bassWeight ?? 1), 0.3, 1.5);
+    this.tuning.midsWeight = clamp(Number(this.tuning.midsWeight ?? 0.9), 0.3, 1.5);
+    this.tuning.highsWeight = clamp(Number(this.tuning.highsWeight ?? 0.65), 0.2, 1.2);
+    this.tuning.motionScale = clamp(Number(this.tuning.motionScale ?? 0.08), 0, 0.2);
+    this.tuning.baseFlow = clamp(Number(this.tuning.baseFlow ?? 0), 0, 0.03);
+    this.tuning.maxSpeed = clamp(Number(this.tuning.maxSpeed ?? 0.18), 0.05, 0.25);
     this.tuning.audioReactivity = clamp(Number(this.tuning.audioReactivity ?? 1), 0.1, 4);
     this.tuning.peakIntensity = clamp(Number(this.tuning.peakIntensity ?? 1), 0.1, 4);
     if (this.analyser) {
@@ -642,9 +643,9 @@ export class AudioEngine {
     const scaledGuitar = rawGuitar * tunedGain;
     const scaledRms = rms * tunedGain;
 
-    const bassWeight = clamp(this.tuning.bassWeight ?? 0.26, 0, 1.2);
-    const midsWeight = clamp(this.tuning.midsWeight ?? 0.2, 0, 1.2);
-    const highsWeight = clamp(this.tuning.highsWeight ?? 0.1, 0, 1.2);
+    const bassWeight = clamp(this.tuning.bassWeight ?? 1, 0.3, 1.5);
+    const midsWeight = clamp(this.tuning.midsWeight ?? 0.9, 0.3, 1.5);
+    const highsWeight = clamp(this.tuning.highsWeight ?? 0.65, 0.2, 1.2);
 
     const observedEnergyUnclamped =
       scaledBass * bassWeight +
@@ -815,13 +816,13 @@ export class AudioEngine {
     });
     const structureActive = !!musicStructure.active;
     const confidence = finiteOr(musicStructure.confidence, 0);
-    const sustainThreshold = clamp(this.tuning.sustainThreshold ?? Math.max(this.tuning.noiseGate * 0.82, 0.055), 0.02, 0.4);
+    const sustainThreshold = clamp(this.tuning.sustainThreshold ?? Math.max(this.tuning.noiseGate * 0.82, 0.03), 0, 0.12);
     const transientLevel = clamp(safeOnset * 0.62 + safePeak * 0.38, 0, 1);
     const transientActive = transientLevel > 0.085;
     const sustainActive = safeSustain > sustainThreshold;
     const signalLevel = clamp(this.trueSignal / Math.max(1e-5, activeAboveFloor * 2.4), 0, 1);
-    const activateThreshold = clamp(this.tuning.activateThreshold ?? 0.34, 0.05, 1);
-    const deactivateThreshold = clamp(this.tuning.deactivateThreshold ?? 0.2, 0.01, activateThreshold);
+    const activateThreshold = clamp(this.tuning.activateThreshold ?? 0.05, 0, 0.15);
+    const deactivateThreshold = clamp(this.tuning.deactivateThreshold ?? 0.02, 0, Math.min(0.1, activateThreshold));
     const strongSignal = signalLevel >= activateThreshold;
     if (strongSignal) {
       this.lastStrongSignalAt = now;
@@ -836,8 +837,8 @@ export class AudioEngine {
     }
     const signalAboveBaseline = this.activeAboveBaseline && this.signalLatchActive;
     const motionGateTarget = signalAboveBaseline && (sustainActive || recentActivity);
-    const motionEnableSeconds = Math.max(0.01, (this.tuning.holdTime ?? 90) / 1000);
-    const motionDisableSeconds = Math.max(0.01, (this.tuning.fadeTime ?? 260) / 1000);
+    const motionEnableSeconds = Math.max(0.01, (this.tuning.holdTime ?? 650) / 1000);
+    const motionDisableSeconds = Math.max(0.01, (this.tuning.fadeTime ?? 900) / 1000);
     if (motionGateTarget) {
       this.motionEnableHold = Math.min(motionEnableSeconds, this.motionEnableHold + dt);
       if (this.motionEnableHold >= motionEnableSeconds) {
@@ -896,11 +897,11 @@ export class AudioEngine {
     this.smooth.transport = followEnvelope(this.smooth.transport, effectiveDrive, 9, 3.2, dt);
     this.smooth.transport = finiteOr(this.smooth.transport, 0);
     const rawTransport = hardIdle ? 0 : clamp(this.smooth.transport, 0, 1);
-    const responseCurve = clamp(this.tuning.responseCurve ?? 1.5, 1, 2.5);
+    const responseCurve = clamp(this.tuning.responseCurve ?? 1.15, 1, 1.8);
     this.transport = clamp(Math.pow(rawTransport, responseCurve), 0, 1);
-    const motionScale = clamp(this.tuning.motionScale ?? 0.35, 0, 2);
-    const baseFlow = clamp(this.tuning.baseFlow ?? 0.02, 0, 1);
-    const maxSpeed = clamp(this.tuning.maxSpeed ?? 0.6, 0.01, 2);
+    const motionScale = clamp(this.tuning.motionScale ?? 0.08, 0, 0.2);
+    const baseFlow = clamp(this.tuning.baseFlow ?? 0, 0, 0.03);
+    const maxSpeed = clamp(this.tuning.maxSpeed ?? 0.18, 0.05, 0.25);
     const finalTransport = this.transport * motionScale;
     const finalMotion = this.motionEnabled ? Math.min(this.transport * (baseFlow + motionScale), maxSpeed) : 0;
     const phaseSeed = finiteOr(this.motionPhase, 0);
@@ -1055,8 +1056,8 @@ export class AudioEngine {
       sustainThreshold,
       pulseDrive: clamp(this.motion.pulseDrive, 0, 1.5),
       transport: clamp(this.transport, 0, 1),
-      finalTransport: clamp(finalTransport, 0, 4),
-      finalMotion: clamp(finalMotion, 0, 4),
+      finalTransport: clamp(finalTransport, 0, 0.25),
+      finalMotion: clamp(finalMotion, 0, 0.25),
       motionScale,
       baseFlow,
       maxSpeed,
