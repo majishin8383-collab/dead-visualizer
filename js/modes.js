@@ -89,8 +89,8 @@ vec3 liquidPalette(float t){
 }
 
 // Mode 1 liquid engine: kept as source-of-truth renderer.
-vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float transport){
-  float motionTime = u_time * u_motionEnabled;
+vec3 modeLiquid(vec2 uv, vec2 p, float bass, float mids, float highs, float energy, float onset, float transport, float transportNorm){
+  float motionTime = u_time * transportNorm * u_motionEnabled;
   float t = motionTime * (0.16 + energy * 0.24) + transport * 0.02;
   vec2 globalDrift = vec2(0.08, -0.06) * motionTime + vec2(transport * 0.0024, -transport * 0.0018);
   vec2 base = p * 0.88 + globalDrift;
@@ -200,7 +200,7 @@ void main(){
   float transportNorm = clamp(u_audioB.z, 0.0, 1.0);
   float transportScale = mix(14.0, 72.0, guitarDrive);
   float transport = transportNorm * transportScale;
-  float motionTime = u_time * u_motionEnabled;
+  float motionTime = u_time * transportNorm * u_motionEnabled;
 
   vec3 scene;
   if (u_mode == 1) {
@@ -383,8 +383,8 @@ vec3 liquidPalette(float t){
   return mix(a, b, f);
 }
 
-vec3 modeLiquid(vec2 p, float bass, float mids, float highs, float energy, float onset, float transport){
-  float motionTime = u_time * u_motionEnabled;
+vec3 modeLiquid(vec2 p, float bass, float mids, float highs, float energy, float onset, float transport, float transportNorm){
+  float motionTime = u_time * transportNorm * u_motionEnabled;
   float t = motionTime * (0.16 + energy * 0.24) + transport * 0.02;
   vec2 globalDrift = vec2(0.08, -0.06) * motionTime + vec2(transport * 0.0024, -transport * 0.0018);
   vec2 base = p * 0.88 + globalDrift;
@@ -469,7 +469,7 @@ void main(){
   float transportScale = mix(14.0, 72.0, guitarDrive);
   float transport = transportNorm * transportScale;
 
-  outColor = vec4(modeLiquid(p, bass, mids, highs, energy, onset, transport), 1.0);
+  outColor = vec4(modeLiquid(p, bass, mids, highs, energy, onset, transport, transportNorm), 1.0);
 }`;
 
 const VERTEX_GLSL = `#version 300 es
