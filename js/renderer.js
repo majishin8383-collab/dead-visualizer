@@ -23,7 +23,15 @@ export class Renderer {
     this.autoSwitchTimer = 0;
     this.autoCycleSeconds = CONFIG.modes.autoCycleSeconds;
 
-    this.motionDebug = { baseFlow: 0, motionScale: 1, finalMotion: 0, finalTransport: 0 };
+    this.motionDebug = {
+      baseFlow: 0,
+      motionScale: 1,
+      finalMotion: 0,
+      finalTransport: 0,
+      rendererTime: 0,
+      shaderTransport: 0,
+      shaderMotionEnabled: false,
+    };
     this.lastTs = performance.now();
     this.lastActiveSignalAt = this.lastTs;
     this.silenceTimer = 0;
@@ -70,8 +78,15 @@ export class Renderer {
       sustainEnergy: debug.sustainEnergy ?? 0,
       motionEnabled: !!debug.motionEnabled,
       transport: debug.transport ?? 0,
-      finalMotion: this.motionDebug.finalMotion ?? 0,
+      finalMotionDriver: this.motionDebug.finalMotion ?? 0,
+      motionPhase: debug.motionTime ?? 0,
+      observedEnergy: debug.observedEnergy ?? 0,
+      trueSignal: debug.trueSignal ?? 0,
+      silence: debug.silence ?? 1,
       baseline: debug.noiseFloor ?? 0,
+      rendererTime: this.motionDebug.rendererTime ?? 0,
+      shaderTransport: this.motionDebug.shaderTransport ?? 0,
+      shaderMotionEnabled: !!this.motionDebug.shaderMotionEnabled,
     };
   }
 
@@ -204,6 +219,9 @@ export class Renderer {
     this.motionDebug.motionScale = motionScale;
     this.motionDebug.finalTransport = finalTransport;
     this.motionDebug.finalMotion = finalMotion;
+    this.motionDebug.rendererTime = motionTime;
+    this.motionDebug.shaderTransport = clamp(audio.transport ?? 0, 0, 1);
+    this.motionDebug.shaderMotionEnabled = finalMotion > 0;
 
     const events = this.eventsEngine.update(audio, dt);
 
@@ -239,8 +257,8 @@ export class Renderer {
         ` sig:${dbg.activeAboveBaseline ? "Y" : "N"}` +
         ` sus:${(dbg.sustainEnergy ?? 0).toFixed(3)}` +
         ` me:${dbg.motionEnabled ? "Y" : "N"}` +
-        ` tr:${(dbg.transport ?? 0).toFixed(3)}` +
-        ` fm:${this.motionDebug.finalMotion.toFixed(3)}` +
+        ` tr(i):${(dbg.transport ?? 0).toFixed(3)}` +
+        ` drv:${this.motionDebug.finalMotion.toFixed(3)}` +
         ` base:${(dbg.noiseFloor ?? 0).toFixed(3)}` +
         ` bl:${dbg.baselineLearning ? "L" : "-"}` +
         ` lk:${dbg.baselineLocked ? "Y" : "N"}` +

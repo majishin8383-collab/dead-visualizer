@@ -498,9 +498,3 @@ export const SHADERS = {
   copyFragment: COPY_FRAGMENT_GLSL,
 };
 
-export const MODE_MOTION_SETTINGS = {
-  1: { motionScale: 0.35, baseFlow: 0.02 },
-  2: { motionScale: 0.2, baseFlow: 0.01 },
-  3: { motionScale: 0.4, baseFlow: 0.02 },
-  4: { motionScale: 0.5, baseFlow: 0.03 },
-};

@@ -34,6 +34,7 @@ const saveModeSettingsButton = byId("saveModeSettingsButton");
 const resetModeDefaultsButton = byId("resetModeDefaultsButton");
 const saveModeSettingsStatus = byId("saveModeSettingsStatus");
 const runtimeDebugPanel = byId("runtimeDebugPanel");
+const runtimeTuningPanel = byId("runtimeTuningPanel");
 const baselineControlButton = byId("baselineControlButton");
 const baselineStatusLabel = byId("baselineStatusLabel");
 
@@ -53,6 +54,8 @@ const controlSpec = {
   baseFlow: { decimals: 2 },
   responseCurve: { decimals: 2 },
   maxSpeed: { decimals: 2 },
+  audioReactivity: { decimals: 2 },
+  peakIntensity: { decimals: 2 },
   bassWeight: { decimals: 2 },
   midsWeight: { decimals: 2 },
   highsWeight: { decimals: 2 },
@@ -113,19 +116,40 @@ function refreshRuntimePanel() {
     if (refs.engine) refs.engine.textContent = fmt(inUse[key], controlSpec[key].decimals);
   });
 
+  if (runtimeTuningPanel) {
+    runtimeTuningPanel.textContent =
+      `mode: ${state.mode} | ` +
+      `micSensitivity: ${fmt(inUse.micSensitivity, 2)} | ` +
+      `noiseGate: ${fmt(inUse.noiseGate, 3)} | ` +
+      `sustainThreshold: ${fmt(inUse.sustainThreshold, 3)} | ` +
+      `activateThreshold: ${fmt(inUse.activateThreshold, 3)} | ` +
+      `deactivateThreshold: ${fmt(inUse.deactivateThreshold, 3)} | ` +
+      `holdTime: ${fmt(inUse.holdTime, 0)} | ` +
+      `fadeTime: ${fmt(inUse.fadeTime, 0)} | ` +
+      `motionScale: ${fmt(inUse.motionScale, 2)} | ` +
+      `baseFlow: ${fmt(inUse.baseFlow, 2)} | ` +
+      `responseCurve: ${fmt(inUse.responseCurve, 2)} | ` +
+      `maxSpeed: ${fmt(inUse.maxSpeed, 2)} | ` +
+      `audioReactivity: ${fmt(inUse.audioReactivity, 2)} | ` +
+      `peakIntensity: ${fmt(inUse.peakIntensity, 2)}`;
+  }
+
   runtimeDebugPanel.textContent =
+    `rawEnergy: ${fmt(state.rawEnergy, 3)} | ` +
+    `observedEnergy: ${fmt(state.observedEnergy, 3)} | ` +
+    `trueSignal: ${fmt(state.trueSignal, 3)} | ` +
+    `sustainEnergy: ${fmt(state.sustainEnergy, 3)} | ` +
+    `transport(intermediate): ${fmt(state.transport, 3)} | ` +
+    `finalMotion(driver): ${fmt(state.finalMotionDriver, 3)} | ` +
+    `motionPhase: ${fmt(state.motionPhase, 3)} | ` +
+    `motionEnabled: ${state.motionEnabled} | ` +
+    `silence: ${fmt(state.silence, 3)} | ` +
+    `baselineValue: ${fmt(state.baseline, 3)} | ` +
     `baselineLearning: ${baselineState.baselineLearning ? "yes" : "no"} | ` +
     `baselineLocked: ${baselineState.baselineLocked ? "yes" : "no"} | ` +
-    `lockedBaselineValue: ${fmt(baselineState.lockedBaselineValue ?? 0, 3)} | ` +
-    `raw energy: ${fmt(state.rawEnergy, 3)} | ` +
-    `signal above baseline: ${state.signalAboveBaseline} | ` +
-    `sustainEnergy: ${fmt(state.sustainEnergy, 3)} | ` +
-    `motionEnabled: ${state.motionEnabled} | ` +
-    `transport: ${fmt(state.transport, 3)} | ` +
-    `finalMotion: ${fmt(state.finalMotion, 3)} | ` +
-    `baseline: ${fmt(state.baseline, 3)} | ` +
-    `current mode: ${state.mode} | ` +
-    `params: ${JSON.stringify(debug.modeParameters ?? inUse)}`;
+    `rendererTime: ${fmt(state.rendererTime, 3)} | ` +
+    `shaderTransport: ${fmt(state.shaderTransport, 3)} | ` +
+    `shaderMotionEnabled: ${state.shaderMotionEnabled ? "yes" : "no"}`;
 }
 
 function setModeAndSync(mode) {
@@ -241,6 +265,7 @@ if (devPanel) {
     energyLabel.parentElement.style.display = visible ? "block" : "none";
     silenceLabel.parentElement.style.display = visible ? "block" : "none";
     runtimeDebugPanel.style.display = visible ? "block" : "none";
+    if (runtimeTuningPanel) runtimeTuningPanel.style.display = visible ? "block" : "none";
   });
 
   setInterval(refreshRuntimePanel, 120);
