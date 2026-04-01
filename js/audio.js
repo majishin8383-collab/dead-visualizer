@@ -647,13 +647,14 @@ export class AudioEngine {
     const midsWeight = clamp(this.tuning.midsWeight ?? 0.9, 0.3, 1.5);
     const highsWeight = clamp(this.tuning.highsWeight ?? 0.65, 0.2, 1.2);
 
-    const observedEnergyUnclamped =
+    const observedEnergyRaw =
       scaledBass * bassWeight +
         scaledLowMid * 0.14 +
         scaledMids * midsWeight +
         scaledHighs * highsWeight +
         scaledRms * 0.78;
-    const observedEnergy = clamp(observedEnergyUnclamped, 0, 1);
+    const observedEnergy = Math.max(0, observedEnergyRaw);
+    const baselineCaptureEnergy = Math.max(0, baseEnergyNormalized);
 
     const adaptiveCfg = CONFIG.audio.adaptiveNoiseFloor ?? {};
     const floorRiseSeconds = Math.max(6, adaptiveCfg.riseSeconds ?? 9);
@@ -661,7 +662,7 @@ export class AudioEngine {
     const riseAlpha = 1 - Math.exp(-dt / floorRiseSeconds);
     const fallAlpha = 1 - Math.exp(-dt / floorFallSeconds);
     const captureHeadroom = clamp(adaptiveCfg.captureHeadroom ?? 0.03, 0.005, 0.08);
-    const floorCandidate = Math.min(observedEnergy, this.baselineEnergy + captureHeadroom);
+    const floorCandidate = Math.min(baselineCaptureEnergy, this.baselineEnergy + captureHeadroom);
     const burstSuppression = clamp(adaptiveCfg.burstRiseSuppress ?? 0.12, 0.02, 1);
     const floorAlpha = floorCandidate > this.baselineEnergy ? riseAlpha * burstSuppression : fallAlpha;
     const manualBaselineCfg = CONFIG.audio.manualBaseline ?? {};
@@ -669,7 +670,7 @@ export class AudioEngine {
     const minSamples = Math.max(10, manualBaselineCfg.minSamples ?? 25);
     if (this.baselineLearning) {
       this.baselineLearningElapsed += dt;
-      this.baselineSamples.push(clamp(observedEnergy, 0, 1));
+      this.baselineSamples.push(clamp(baselineCaptureEnergy, 0, 1));
       if (this.baselineSamples.length > 240) this.baselineSamples.shift();
       const learnedBaseline = this.computeLearnedBaseline();
       this.baselineLearningValue = learnedBaseline;
